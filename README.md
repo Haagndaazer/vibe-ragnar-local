@@ -1,5 +1,5 @@
 ![Main img](https://i.imgur.com/eeCrPjx.png)
-![Python Version](https://img.shields.io/badge/python-3.11%2B-blue?style=flat&logo=python&logoColor=white)
+![Python Version](https://img.shields.io/badge/python-3.11--3.13-blue?style=flat&logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green?style=flat)
 ![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)
 ![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)
@@ -20,7 +20,7 @@ A lightweight MCP server for code indexing that combines graph analysis with sem
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.11-3.13 (3.14+ not supported)
 - [uv](https://github.com/astral-sh/uv) package manager
 - MongoDB Atlas account (for vector storage)
 - Voyage AI API key (for embeddings)

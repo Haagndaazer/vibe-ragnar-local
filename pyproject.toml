@@ -5,7 +5,7 @@ description = "MCP server for code indexing with graph analysis and semantic sea
 authors = [{ name = "BlckLvls" }]
 license = { text = "MIT" }
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "fastmcp>=2.0.0",
     "tree-sitter>=0.24.0",
