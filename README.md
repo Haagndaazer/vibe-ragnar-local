@@ -1,7 +1,10 @@
-<img width="100%" alt="Image" src="https://github.com/user-attachments/assets/7fa3aa0a-045b-467e-981c-7e884c3d4ec3" />
+![Main img](https://i.imgur.com/eeCrPjx.png)
+![Python Version](https://img.shields.io/badge/python-3.11%2B-blue?style=flat&logo=python&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green?style=flat)
+![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)
+![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)
+![MCP](https://img.shields.io/badge/MCP-Server-purple?style=flat)
 # Vibe RAGnar
-
-> "Let your AI raid your codebase"
 
 A lightweight MCP server for code indexing that combines graph analysis with semantic search through vector embeddings.
 
