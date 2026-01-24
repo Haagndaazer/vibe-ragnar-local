@@ -1,6 +1,7 @@
 """FastMCP server for Vibe RAGnar - code indexing with graph analysis and semantic search."""
 
 import logging
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -64,6 +65,52 @@ def create_file_change_handler(
     return handle_changes
 
 
+def run_initial_indexing(
+    parser: TreeSitterParser,
+    graph_builder: GraphBuilder,
+    embedding_sync: EmbeddingSync,
+    repo_path: Path,
+    context: dict[str, Any],
+) -> None:
+    """Run initial indexing in background thread.
+
+    Args:
+        parser: TreeSitterParser instance
+        graph_builder: GraphBuilder instance
+        embedding_sync: EmbeddingSync instance
+        repo_path: Repository root path
+        context: Server context dict to update indexing_complete flag
+    """
+    try:
+        logger.info("Starting background indexing...")
+
+        # Phase 1: Parsing
+        context["indexing_phase"] = "parsing"
+        entities = parser.parse_directory(repo_path, repo_path)
+        context["indexing_total_entities"] = len(entities)
+        # Count embeddable entities (functions and classes only)
+        embeddable = sum(1 for e in entities if e.entity_type in ("function", "class"))
+        context["indexing_embeddable_entities"] = embeddable
+        logger.info(f"Parsed {len(entities)} entities ({embeddable} embeddable)")
+
+        # Phase 2: Building graph
+        context["indexing_phase"] = "building_graph"
+        graph_builder.build_from_entities(entities)
+        logger.info("Graph built successfully")
+
+        # Phase 3: Syncing embeddings
+        context["indexing_phase"] = "syncing_embeddings"
+        sync_result = embedding_sync.sync_entities(entities)
+        logger.info(f"Embedding sync: {sync_result}")
+
+        context["indexing_phase"] = "complete"
+        context["indexing_complete"] = True
+        logger.info("Background indexing completed successfully")
+    except Exception as e:
+        logger.error(f"Background indexing failed: {e}")
+        context["indexing_error"] = str(e)
+
+
 @asynccontextmanager
 async def lifespan(server: FastMCP):
     """Manage server lifecycle - initialize and cleanup resources."""
@@ -118,15 +165,31 @@ async def lifespan(server: FastMCP):
         repo_name=config.effective_repo_name,
     )
 
-    # Perform initial indexing
-    logger.info("Performing initial indexing...")
-    entities = parser.parse_directory(config.repo_path, config.repo_path)
-    logger.info(f"Parsed {len(entities)} entities")
+    # Build context for tools (before indexing so MCP handshake completes quickly)
+    context: dict[str, Any] = {
+        "config": config,
+        "graph": graph_storage,
+        "graph_builder": graph_builder,
+        "parser": parser,
+        "embedding_storage": embedding_storage,
+        "embedding_generator": embedding_generator,
+        "embedding_sync": embedding_sync,
+        "watcher": None,  # Will be set after watcher starts
+        "watcher_active": False,
+        "indexing_complete": False,
+        "indexing_error": None,
+        "indexing_phase": "starting",
+        "indexing_total_entities": 0,
+        "indexing_embeddable_entities": 0,
+    }
 
-    graph_builder.build_from_entities(entities)
-
-    sync_result = embedding_sync.sync_entities(entities)
-    logger.info(f"Embedding sync: {sync_result}")
+    # Start background indexing
+    indexing_thread = threading.Thread(
+        target=run_initial_indexing,
+        args=(parser, graph_builder, embedding_sync, config.repo_path, context),
+        daemon=True,
+    )
+    indexing_thread.start()
 
     # Initialize file watcher
     logger.info("Starting file watcher...")
@@ -144,20 +207,11 @@ async def lifespan(server: FastMCP):
     )
     watcher.start()
 
-    # Build context for tools
-    context: dict[str, Any] = {
-        "config": config,
-        "graph": graph_storage,
-        "graph_builder": graph_builder,
-        "parser": parser,
-        "embedding_storage": embedding_storage,
-        "embedding_generator": embedding_generator,
-        "embedding_sync": embedding_sync,
-        "watcher": watcher,
-        "watcher_active": True,
-    }
+    # Update context with watcher
+    context["watcher"] = watcher
+    context["watcher_active"] = True
 
-    logger.info("Vibe RAGnar initialized successfully")
+    logger.info("Vibe RAGnar ready (indexing in background)")
 
     yield context
 

@@ -62,7 +62,7 @@ claude mcp add vibe-ragnar \
 
 `$PWD` automatically expands to your current directory, so Vibe RAGnar will index the project you're in.
 
-> **Note:** After adding the MCP server, restart Claude Code to apply changes. The first startup may take ~5 minutes for initial indexing: creating MongoDB collections, building vector indexes, and generating embeddings for your codebase.
+> **Note:** After adding the MCP server, restart Claude Code to apply changes. The server starts instantly - initial indexing runs in the background. Use `get_index_status` to check indexing progress.
 
 ## MCP Tools
 

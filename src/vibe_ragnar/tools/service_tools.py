@@ -33,6 +33,11 @@ def register_service_tools(mcp) -> None:
         graph: GraphStorage = ctx.request_context.lifespan_context["graph"]
         embedding_storage: MongoDBStorage = ctx.request_context.lifespan_context["embedding_storage"]
         watcher_active = ctx.request_context.lifespan_context.get("watcher_active", False)
+        indexing_complete = ctx.request_context.lifespan_context.get("indexing_complete", False)
+        indexing_error = ctx.request_context.lifespan_context.get("indexing_error")
+        indexing_phase = ctx.request_context.lifespan_context.get("indexing_phase", "starting")
+        indexing_total_entities = ctx.request_context.lifespan_context.get("indexing_total_entities", 0)
+        indexing_embeddable = ctx.request_context.lifespan_context.get("indexing_embeddable_entities", 0)
 
         # Get graph statistics
         graph_stats = graph.get_statistics()
@@ -42,8 +47,16 @@ def register_service_tools(mcp) -> None:
             {"repo": config.effective_repo_name}
         )
 
-        return {
-            "status": "running",
+        # Determine status
+        if indexing_error:
+            status = "error"
+        elif indexing_complete:
+            status = "ready"
+        else:
+            status = "indexing"
+
+        result = {
+            "status": status,
             "repo_name": config.effective_repo_name,
             "repo_path": str(config.repo_path),
             "graph": {
@@ -60,6 +73,24 @@ def register_service_tools(mcp) -> None:
             },
             "watcher_active": watcher_active,
         }
+
+        # Add indexing progress info
+        if not indexing_complete:
+            result["indexing"] = {
+                "phase": indexing_phase,
+                "total_entities": indexing_total_entities,
+                "embeddable_entities": indexing_embeddable,
+            }
+            if indexing_error:
+                result["indexing"]["error"] = indexing_error
+        else:
+            result["indexing"] = {
+                "phase": "complete",
+                "total_entities": indexing_total_entities,
+                "embeddable_entities": indexing_embeddable,
+            }
+
+        return result
 
     @mcp.tool()
     def reindex(
