@@ -515,44 +515,112 @@ def is_supported_file(file_path: Path | str) -> bool:
 
 # Directories to ignore when scanning for files
 IGNORED_DIRECTORIES = frozenset({
-    # JavaScript/Node
-    "node_modules",
-    ".next",
-    ".nuxt",
-    # React Native / Mobile
-    "android",
-    "ios",
-    ".expo",
-    ".expo-shared",
-    # Java/Gradle
-    ".gradle",
-    ".idea",
-    # Python
+    # === Version Control ===
+    ".git",
+    ".svn",
+    ".hg",
+
+    # === Python ===
     "__pycache__",
     ".venv",
     "venv",
     ".env",
+    "env",
+    "ENV",
     ".tox",
+    ".nox",
     ".pytest_cache",
     ".mypy_cache",
+    ".pytype",
     ".ruff_cache",
-    "htmlcov",
     ".coverage",
-    "egg-info",
+    "htmlcov",
+    "coverage",
     ".eggs",
-    # Rust
-    "target",
-    # Go
+    "egg-info",
+    "wheels",
+    "sdist",
+    ".Python",
+    "lib",
+    "lib64",
+
+    # === JavaScript / TypeScript ===
+    "node_modules",
+    ".npm",
+    ".pnpm-store",
+    ".yarn",
+    "bower_components",
+    ".cache",
+    ".parcel-cache",
+    ".turbo",
+
+    # === JS Frameworks ===
+    ".next",
+    ".nuxt",
+    ".svelte-kit",
+    ".vitepress",
+    ".docusaurus",
+    ".astro",
+    ".remix",
+    "storybook-static",
+    ".vercel",
+    ".netlify",
+
+    # === React Native / Mobile ===
+    "android",
+    "ios",
+    ".expo",
+    ".expo-shared",
+    "Pods",
+    ".bundle",
+    "DerivedData",
+    "xcuserdata",
+
+    # === Go ===
     "vendor",
-    # Git
-    ".git",
-    # Build outputs
+    "bin",
+    "pkg",
+
+    # === Rust ===
+    "target",
+
+    # === Java ===
+    ".gradle",
+    ".mvn",
+    ".settings",
+
+    # === C / C++ ===
+    "CMakeFiles",
+    "cmake-build-debug",
+    "cmake-build-release",
+    "Debug",
+    "Release",
+    "x64",
+    "x86",
+    "ipch",
+    ".ccls-cache",
+
+    # === IDEs ===
+    ".idea",
+    ".vscode",
+    ".vs",
+    ".eclipse",
+    "nbproject",
+
+    # === Build Outputs ===
     "dist",
     "build",
     "out",
     ".output",
-    # Coverage
-    "coverage",
+
+    # === Misc ===
+    "logs",
+    "log",
+    "tmp",
+    "temp",
+    ".tmp",
+    ".temp",
+    ".local",
 })
 
 
