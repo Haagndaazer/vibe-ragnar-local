@@ -2,7 +2,7 @@
 name = "vibe-ragnar"
 version = "0.1.0"
 description = "MCP server for code indexing with graph analysis and semantic search"
-authors = [{ name = "Vibe RAGnar Team" }]
+authors = [{ name = "BlckLvls" }]
 license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.11"

@@ -55,3 +55,6 @@ Thumbs.db
 # Project specific
 *.log
 .mcp.json
+
+# Claude
+.claude/
