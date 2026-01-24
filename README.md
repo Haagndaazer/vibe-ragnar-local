@@ -1,4 +1,4 @@
-![Image](https://github.com/user-attachments/assets/7fa3aa0a-045b-467e-981c-7e884c3d4ec3)
+<img width="100%" alt="Image" src="https://github.com/user-attachments/assets/7fa3aa0a-045b-467e-981c-7e884c3d4ec3" />
 # Vibe RAGnar
 
 > "Let your AI raid your codebase"
