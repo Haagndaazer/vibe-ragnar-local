@@ -1,0 +1,184 @@
+"""FastMCP server for Vibe RAGnar - code indexing with graph analysis and semantic search."""
+
+import logging
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
+
+from fastmcp import FastMCP
+
+from .config import Settings, setup_logging
+from .embeddings import EmbeddingGenerator, EmbeddingSync, MongoDBStorage
+from .graph import GraphBuilder, GraphStorage
+from .parser import TreeSitterParser
+from .tools import register_all_tools
+from .watcher import FileWatcher
+
+logger = logging.getLogger(__name__)
+
+
+def create_file_change_handler(
+    parser: TreeSitterParser,
+    graph_builder: GraphBuilder,
+    embedding_sync: EmbeddingSync,
+    repo_root: Path,
+):
+    """Create a callback function for handling file changes.
+
+    Args:
+        parser: TreeSitterParser instance
+        graph_builder: GraphBuilder instance
+        embedding_sync: EmbeddingSync instance
+        repo_root: Repository root path
+
+    Returns:
+        Callback function for FileWatcher
+    """
+
+    def handle_changes(changes: dict[str, str]) -> None:
+        """Handle accumulated file changes.
+
+        Args:
+            changes: Dict mapping file paths to change types ("upsert" or "delete")
+        """
+        for file_path_str, change_type in changes.items():
+            file_path = Path(file_path_str)
+
+            try:
+                relative_path = str(file_path.relative_to(repo_root))
+
+                if change_type == "delete":
+                    graph_builder.remove_file(relative_path)
+                    embedding_sync.delete_file(relative_path)
+                    logger.info(f"Removed: {relative_path}")
+
+                else:  # upsert
+                    entities = parser.parse_file(file_path, repo_root)
+                    graph_builder.update_file(relative_path, entities)
+                    result = embedding_sync.sync_file(relative_path, entities)
+                    logger.info(f"Updated: {relative_path} ({result})")
+
+            except Exception as e:
+                logger.error(f"Failed to process {file_path}: {e}")
+
+    return handle_changes
+
+
+@asynccontextmanager
+async def lifespan(server: FastMCP):
+    """Manage server lifecycle - initialize and cleanup resources."""
+    # Load configuration
+    try:
+        config = Settings()
+    except Exception as e:
+        logger.error(f"Failed to load configuration: {e}")
+        raise
+
+    setup_logging(config.log_level)
+    logger.info(f"Starting Vibe RAGnar for repository: {config.effective_repo_name}")
+    logger.info(f"Repository path: {config.repo_path}")
+
+    # Initialize MongoDB storage
+    logger.info("Connecting to MongoDB...")
+    embedding_storage = MongoDBStorage(
+        uri=config.mongodb_uri,
+        database=config.mongodb_database,
+        collection=config.mongodb_collection,
+    )
+    embedding_storage.ensure_standard_indexes()
+
+    try:
+        embedding_storage.ensure_vector_index(config.embedding_dimensions)
+    except Exception as e:
+        logger.warning(f"Could not create vector index (vector search may not work): {e}")
+
+    # Initialize embedding generator
+    logger.info("Initializing Voyage AI client...")
+    embedding_generator = EmbeddingGenerator(
+        api_key=config.voyage_api_key,
+        model=config.embedding_model,
+        dimensions=config.embedding_dimensions,
+    )
+
+    # Initialize graph storage
+    logger.info("Initializing graph storage...")
+    graph_storage = GraphStorage()
+
+    # Initialize parser
+    logger.info("Initializing parser...")
+    parser = TreeSitterParser(config.effective_repo_name)
+
+    # Initialize graph builder
+    graph_builder = GraphBuilder(graph_storage)
+
+    # Initialize embedding sync
+    embedding_sync = EmbeddingSync(
+        generator=embedding_generator,
+        storage=embedding_storage,
+        repo_name=config.effective_repo_name,
+    )
+
+    # Perform initial indexing
+    logger.info("Performing initial indexing...")
+    entities = parser.parse_directory(config.repo_path, config.repo_path)
+    logger.info(f"Parsed {len(entities)} entities")
+
+    graph_builder.build_from_entities(entities)
+
+    sync_result = embedding_sync.sync_entities(entities)
+    logger.info(f"Embedding sync: {sync_result}")
+
+    # Initialize file watcher
+    logger.info("Starting file watcher...")
+    change_handler = create_file_change_handler(
+        parser=parser,
+        graph_builder=graph_builder,
+        embedding_sync=embedding_sync,
+        repo_root=config.repo_path,
+    )
+
+    watcher = FileWatcher(
+        repo_path=config.repo_path,
+        on_changes=change_handler,
+        debounce_seconds=config.debounce_seconds,
+    )
+    watcher.start()
+
+    # Build context for tools
+    context: dict[str, Any] = {
+        "config": config,
+        "graph": graph_storage,
+        "graph_builder": graph_builder,
+        "parser": parser,
+        "embedding_storage": embedding_storage,
+        "embedding_generator": embedding_generator,
+        "embedding_sync": embedding_sync,
+        "watcher": watcher,
+        "watcher_active": True,
+    }
+
+    logger.info("Vibe RAGnar initialized successfully")
+
+    yield context
+
+    # Cleanup
+    logger.info("Shutting down Vibe RAGnar...")
+    watcher.stop()
+    embedding_storage.close()
+    logger.info("Shutdown complete")
+
+
+# Create the MCP server
+mcp = FastMCP("Vibe RAGnar", lifespan=lifespan)
+
+# Register all tools
+register_all_tools(mcp)
+
+
+def main():
+    """Entry point for the Vibe RAGnar MCP server."""
+    mcp.run()
+
+
+if __name__ == "__main__":
+    main()
