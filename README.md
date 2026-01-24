@@ -16,14 +16,38 @@ A lightweight MCP server for code indexing that combines graph analysis with sem
 - **Multi-language Support**: Python, TypeScript, JavaScript, Go, Rust, Java, C, C++
 - **Single Process**: No Docker or external services needed (except MongoDB Atlas)
 
+## External Services
+
+> **💸 100% Free:** Although this project uses external services, they were specifically chosen because they offer generous free tiers. You can use Vibe RAGnar completely free of charge.
+
+### MongoDB Atlas
+
+**URL:** https://www.mongodb.com/atlas
+
+MongoDB Atlas is used for vector storage and semantic search.
+
+- Create a **free M0 cluster** (512 MB storage)
+- 512 MB is enough for many indexed projects
+- No credit card required
+
+### Voyage AI
+
+**URL:** https://www.voyageai.com
+
+Voyage AI provides the `voyage-code-3` embedding model used for semantic code search.
+
+- **200 million free tokens** — more than enough for extensive use
+- ⚠️ **Credit card required** — without a linked card, rate limits are too restrictive for practical use
+- You won't be charged (free tier is huge), but the card removes rate limiting
+
 ## Installation
 
 ### Prerequisites
 
 - Python 3.11-3.13 (3.14+ not supported)
 - [uv](https://github.com/astral-sh/uv) package manager
-- MongoDB Atlas account (for vector storage)
-- Voyage AI API key (for embeddings)
+- [MongoDB Atlas](https://www.mongodb.com/atlas) account (free tier)
+- [Voyage AI](https://www.voyageai.com) API key (free tier, card required)
 
 #### Installing uv
 
