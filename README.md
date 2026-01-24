@@ -48,24 +48,19 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ## Usage with Claude Code
 
-Add Vibe RAGnar as an MCP server to your project:
+Navigate to your project directory and add Vibe RAGnar as an MCP server:
 
 ```bash
+cd /path/to/your-project
+
 claude mcp add vibe-ragnar \
   --env MONGODB_URI="mongodb+srv://your-connection-string" \
   --env VOYAGE_API_KEY="your-voyage-api-key" \
+  --env REPO_PATH="$PWD" \
   -- uv run --directory /path/to/vibe-ragnar python -m vibe_ragnar.server
 ```
 
-You can explicitly specify the repository to index with `REPO_PATH`:
-
-```bash
-claude mcp add vibe-ragnar \
-  --env MONGODB_URI="mongodb+srv://your-connection-string" \
-  --env VOYAGE_API_KEY="your-voyage-api-key" \
-  --env REPO_PATH="/path/to/repo-to-index" \
-  -- uv run --directory /path/to/vibe-ragnar python -m vibe_ragnar.server
-```
+`$PWD` automatically expands to your current directory, so Vibe RAGnar will index the project you're in.
 
 > **Note:** After adding the MCP server, restart Claude Code to apply changes. The first startup may take ~5 minutes for initial indexing: creating MongoDB collections, building vector indexes, and generating embeddings for your codebase.
 
