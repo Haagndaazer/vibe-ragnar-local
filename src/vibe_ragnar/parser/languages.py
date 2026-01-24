@@ -515,18 +515,23 @@ def is_supported_file(file_path: Path | str) -> bool:
 
 # Directories to ignore when scanning for files
 IGNORED_DIRECTORIES = frozenset({
+    # JavaScript/Node
     "node_modules",
-    ".git",
+    ".next",
+    ".nuxt",
+    # React Native / Mobile
+    "android",
+    "ios",
+    ".expo",
+    ".expo-shared",
+    # Java/Gradle
+    ".gradle",
+    ".idea",
+    # Python
     "__pycache__",
     ".venv",
     "venv",
     ".env",
-    "dist",
-    "build",
-    ".next",
-    ".nuxt",
-    "target",  # Rust
-    "vendor",  # Go
     ".tox",
     ".pytest_cache",
     ".mypy_cache",
@@ -535,6 +540,19 @@ IGNORED_DIRECTORIES = frozenset({
     ".coverage",
     "egg-info",
     ".eggs",
+    # Rust
+    "target",
+    # Go
+    "vendor",
+    # Git
+    ".git",
+    # Build outputs
+    "dist",
+    "build",
+    "out",
+    ".output",
+    # Coverage
+    "coverage",
 })
 
 
