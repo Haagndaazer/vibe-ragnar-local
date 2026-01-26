@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2025-01-26
+
+### Changed
+
+#### Agent Prompts
+- Streamlined Explore and Plan agent instructions
+- Removed verbose examples, kept essential guidance
+- Cleaner MCP tool documentation
+
+#### Plan Agent
+- Added `Write` and `Edit` tools for plan file output
+- New "Critical Files for Implementation" output section
+
+#### Install Script
+- Added model selection for Explore agent (haiku/sonnet)
+- Added option to add `.claude/` to `.gitignore`
+- Sonnet disclaimer about higher usage limits but better MCP integration
+
 ## [0.1.1] - 2025-01-26
 
 ### Added
@@ -96,5 +114,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Graph query tools: `get_function_calls`, `get_callers`, `get_call_chain`, `get_class_hierarchy`
 - Semantic search tool
 
-[0.1.1]: https://github.com/user/vibe-ragnar/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/user/vibe-ragnar/releases/tag/v0.1.0
+[0.1.2]: https://github.com/BlckLvls/vibe-ragnar/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/BlckLvls/vibe-ragnar/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/BlckLvls/vibe-ragnar/releases/tag/v0.1.0
