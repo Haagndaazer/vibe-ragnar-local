@@ -16,6 +16,79 @@ class EntityType(str, Enum):
     TYPE = "type"
 
 
+class CallType(str, Enum):
+    """Types of function/method calls."""
+
+    FUNCTION = "function"  # Regular function call: foo()
+    METHOD = "method"  # Method call: obj.method()
+    CONSTRUCTOR = "constructor"  # Constructor call: new Foo() or Foo()
+    DECORATOR = "decorator"  # Decorator: @decorator
+    STATIC = "static"  # Static method: Class.method()
+
+
+class AccessModifier(str, Enum):
+    """Access modifiers for functions, classes, and fields."""
+
+    PUBLIC = "public"
+    PRIVATE = "private"
+    PROTECTED = "protected"
+    INTERNAL = "internal"  # C#, Kotlin
+    PACKAGE = "package"  # Java default
+
+
+class TypeParameter(BaseModel):
+    """Represents a generic type parameter.
+
+    Examples:
+    - TypeScript: function foo<T extends Base>() -> TypeParameter(name="T", constraint="Base")
+    - Java: class Box<T> -> TypeParameter(name="T")
+    - Rust: fn foo<T: Clone>() -> TypeParameter(name="T", constraint="Clone")
+    """
+
+    name: str = Field(..., description="Name of the type parameter (e.g., 'T', 'K', 'V')")
+    constraint: str | None = Field(
+        default=None, description="Type constraint/bound (e.g., 'extends Base', ': Clone')"
+    )
+    default: str | None = Field(
+        default=None, description="Default type if not specified"
+    )
+    variance: Literal["in", "out", "inout"] | None = Field(
+        default=None, description="Variance annotation (Kotlin: in/out)"
+    )
+
+
+class CallInfo(BaseModel):
+    """Detailed information about a function/method call."""
+
+    name: str = Field(..., description="Name of the called function/method")
+    call_type: CallType = Field(
+        default=CallType.FUNCTION, description="Type of call"
+    )
+    receiver: str | None = Field(
+        default=None,
+        description="Receiver object for method calls (e.g., 'obj' in obj.method())",
+    )
+    is_nested: bool = Field(
+        default=False,
+        description="Whether this call is nested inside another call",
+    )
+    is_chained: bool = Field(
+        default=False,
+        description="Whether this is part of a method chain",
+    )
+    line: int | None = Field(
+        default=None,
+        description="Line number where the call occurs",
+    )
+
+    @property
+    def qualified_name(self) -> str:
+        """Get qualified name for method calls."""
+        if self.receiver and self.call_type in (CallType.METHOD, CallType.STATIC):
+            return f"{self.receiver}.{self.name}"
+        return self.name
+
+
 class CodeEntity(BaseModel):
     """Base class for all code entities."""
 
@@ -55,7 +128,36 @@ class Function(CodeEntity):
     calls: list[str] = Field(
         default_factory=list, description="List of function/method names called within this function"
     )
+    call_details: list[CallInfo] = Field(
+        default_factory=list,
+        description="Detailed information about each call in this function",
+    )
     is_async: bool = Field(default=False, description="Whether the function is async")
+    is_constructor: bool = Field(
+        default=False,
+        description="Whether this function is a constructor",
+    )
+    # New fields for Phase 3
+    access_modifier: AccessModifier | None = Field(
+        default=None,
+        description="Access modifier (public/private/protected)",
+    )
+    is_static: bool = Field(
+        default=False,
+        description="Whether the function is static",
+    )
+    is_abstract: bool = Field(
+        default=False,
+        description="Whether the function is abstract (no implementation)",
+    )
+    type_parameters: list[TypeParameter] = Field(
+        default_factory=list,
+        description="Generic type parameters for the function",
+    )
+    return_type: str | None = Field(
+        default=None,
+        description="Return type annotation if present",
+    )
 
     @computed_field
     @property
@@ -83,6 +185,27 @@ class Class(CodeEntity):
     bases: list[str] = Field(default_factory=list, description="List of base class names")
     decorators: list[str] = Field(default_factory=list, description="List of decorator names")
     methods: list[str] = Field(default_factory=list, description="List of method names")
+    # New fields for Phase 3
+    access_modifier: AccessModifier | None = Field(
+        default=None,
+        description="Access modifier (public/private/protected)",
+    )
+    is_abstract: bool = Field(
+        default=False,
+        description="Whether the class is abstract",
+    )
+    is_interface: bool = Field(
+        default=False,
+        description="Whether this is an interface (TypeScript, Java)",
+    )
+    type_parameters: list[TypeParameter] = Field(
+        default_factory=list,
+        description="Generic type parameters for the class",
+    )
+    implements: list[str] = Field(
+        default_factory=list,
+        description="List of interfaces this class implements (Java)",
+    )
 
     @computed_field
     @property

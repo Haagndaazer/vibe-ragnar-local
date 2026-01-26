@@ -1,7 +1,10 @@
 """Parser module for extracting code entities using Tree-sitter."""
 
 from .entities import (
+    AccessModifier,
     AnyEntity,
+    CallInfo,
+    CallType,
     Class,
     CodeEntity,
     EmbeddableEntity,
@@ -9,6 +12,7 @@ from .entities import (
     File,
     Function,
     TypeDefinition,
+    TypeParameter,
 )
 from .languages import (
     IGNORED_DIRECTORIES,
@@ -23,7 +27,10 @@ from .treesitter import TreeSitterParser
 
 __all__ = [
     # Entities
+    "AccessModifier",
     "AnyEntity",
+    "CallInfo",
+    "CallType",
     "Class",
     "CodeEntity",
     "EmbeddableEntity",
@@ -31,6 +38,7 @@ __all__ = [
     "File",
     "Function",
     "TypeDefinition",
+    "TypeParameter",
     # Languages
     "IGNORED_DIRECTORIES",
     "LANGUAGE_CONFIGS",

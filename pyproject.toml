@@ -1,6 +1,6 @@
 [project]
 name = "vibe-ragnar"
-version = "0.1.0"
+version = "0.1.1"
 description = "MCP server for code indexing with graph analysis and semantic search"
 authors = [{ name = "BlckLvls" }]
 license = { text = "MIT" }

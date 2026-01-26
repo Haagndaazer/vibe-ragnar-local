@@ -1,25 +1,186 @@
 """Graph builder for constructing code dependency graphs from parsed entities."""
 
 import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..parser.entities import AnyEntity, Class, File, Function, TypeDefinition
+from .import_resolver import ImportResolver
 from .storage import EdgeType, GraphStorage
 
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class ScopedSymbolTable:
+    """Hierarchical symbol table with file-based scoping.
+
+    Supports:
+    - File-local symbols (functions/classes defined in a file)
+    - Qualified names for methods (ClassName.method)
+    - Global scope for exported/top-level symbols
+    """
+
+    # Global scope: simple name -> entity_id (for cross-file resolution)
+    global_scope: dict[str, str] = field(default_factory=dict)
+
+    # File-local scope: file_path -> (name -> entity_id)
+    file_scopes: dict[str, dict[str, str]] = field(default_factory=dict)
+
+    # Qualified names: qualified_name -> entity_id (e.g., "ClassName.method")
+    qualified_names: dict[str, str] = field(default_factory=dict)
+
+    # Reverse mapping for cleanup: entity_id -> list of registered names
+    entity_to_names: dict[str, list[tuple[str, str]]] = field(default_factory=dict)
+
+    def register(
+        self,
+        entity_id: str,
+        name: str,
+        file_path: str,
+        qualified_name: str | None = None,
+        is_exported: bool = True,
+    ) -> None:
+        """Register a symbol in the appropriate scopes.
+
+        Args:
+            entity_id: Unique entity identifier
+            name: Simple name of the symbol
+            file_path: File where the symbol is defined
+            qualified_name: Qualified name (e.g., ClassName.method)
+            is_exported: Whether the symbol is visible globally
+        """
+        registered_names: list[tuple[str, str]] = []
+
+        # Always register in file-local scope
+        if file_path not in self.file_scopes:
+            self.file_scopes[file_path] = {}
+        self.file_scopes[file_path][name] = entity_id
+        registered_names.append(("file", name))
+
+        # Register qualified name if provided
+        if qualified_name:
+            self.qualified_names[qualified_name] = entity_id
+            registered_names.append(("qualified", qualified_name))
+            # Also register in file scope with qualified name
+            self.file_scopes[file_path][qualified_name] = entity_id
+            registered_names.append(("file", qualified_name))
+
+        # Register in global scope if exported
+        if is_exported:
+            self.global_scope[name] = entity_id
+            registered_names.append(("global", name))
+            if qualified_name:
+                self.global_scope[qualified_name] = entity_id
+                registered_names.append(("global", qualified_name))
+
+        # Track for cleanup
+        self.entity_to_names[entity_id] = registered_names
+
+    def resolve(
+        self,
+        name: str,
+        context_file: str | None = None,
+    ) -> str | None:
+        """Resolve a symbol name to an entity ID.
+
+        Resolution order:
+        1. Qualified names (ClassName.method)
+        2. File-local scope (same file)
+        3. Global scope
+
+        Args:
+            name: Symbol name to resolve
+            context_file: File path for context (for local resolution)
+
+        Returns:
+            Entity ID or None if not found
+        """
+        # Try qualified names first (for method calls like ClassName.method)
+        if name in self.qualified_names:
+            return self.qualified_names[name]
+
+        # Try file-local scope
+        if context_file and context_file in self.file_scopes:
+            local_scope = self.file_scopes[context_file]
+            if name in local_scope:
+                return local_scope[name]
+
+        # Try global scope
+        if name in self.global_scope:
+            return self.global_scope[name]
+
+        return None
+
+    def unregister(self, entity_id: str) -> None:
+        """Remove all registrations for an entity.
+
+        Args:
+            entity_id: Entity ID to unregister
+        """
+        if entity_id not in self.entity_to_names:
+            return
+
+        for scope_type, name in self.entity_to_names[entity_id]:
+            if scope_type == "global":
+                self.global_scope.pop(name, None)
+            elif scope_type == "qualified":
+                self.qualified_names.pop(name, None)
+            elif scope_type == "file":
+                # Find and remove from file scopes
+                for file_scope in self.file_scopes.values():
+                    file_scope.pop(name, None)
+
+        del self.entity_to_names[entity_id]
+
+    def unregister_file(self, file_path: str) -> None:
+        """Remove all symbols from a file.
+
+        Args:
+            file_path: Path of the file to remove
+        """
+        if file_path in self.file_scopes:
+            # Get all entity IDs from this file
+            entity_ids = set(self.file_scopes[file_path].values())
+            # Unregister each entity
+            for entity_id in entity_ids:
+                self.unregister(entity_id)
+            # Remove file scope
+            del self.file_scopes[file_path]
+
+    def clear(self) -> None:
+        """Clear all scopes."""
+        self.global_scope.clear()
+        self.file_scopes.clear()
+        self.qualified_names.clear()
+        self.entity_to_names.clear()
+
+    def get_all_symbols_in_file(self, file_path: str) -> dict[str, str]:
+        """Get all symbols defined in a file.
+
+        Args:
+            file_path: Path to the file
+
+        Returns:
+            Dictionary of name -> entity_id for symbols in the file
+        """
+        return self.file_scopes.get(file_path, {})
+
+
 class GraphBuilder:
     """Builds and maintains the code dependency graph."""
 
-    def __init__(self, storage: GraphStorage):
+    def __init__(self, storage: GraphStorage, repo_root: Path | None = None):
         """Initialize the graph builder.
 
         Args:
             storage: GraphStorage instance to build into
+            repo_root: Root directory of the repository (for import resolution)
         """
         self._storage = storage
-        self._symbol_table: dict[str, str] = {}  # name -> entity_id mapping
+        self._symbol_table = ScopedSymbolTable()
+        self._repo_root = repo_root or Path.cwd()
+        self._import_resolver = ImportResolver(self._repo_root)
 
     @property
     def storage(self) -> GraphStorage:
@@ -37,6 +198,12 @@ class GraphBuilder:
             entities: List of code entities to add to the graph
         """
         logger.info(f"Building graph from {len(entities)} entities")
+
+        # Collect all known file paths for import resolution
+        known_files = {
+            entity.file_path for entity in entities if isinstance(entity, File)
+        }
+        self._import_resolver.set_known_files(known_files)
 
         # First pass: add all nodes
         for entity in entities:
@@ -60,26 +227,41 @@ class GraphBuilder:
         Args:
             entity: Entity to register
         """
-        names_to_register: list[str] = []
-
         if isinstance(entity, Function):
-            # Register by simple name
-            names_to_register.append(entity.name)
-            # Also register qualified name for methods
+            qualified_name = None
             if entity.class_name:
-                qualified = f"{entity.class_name}.{entity.name}"
-                names_to_register.append(qualified)
+                qualified_name = f"{entity.class_name}.{entity.name}"
+
+            self._symbol_table.register(
+                entity_id=entity.id,
+                name=entity.name,
+                file_path=entity.file_path,
+                qualified_name=qualified_name,
+                is_exported=True,
+            )
+
+            # Resolve external references
+            self._resolve_external_reference(entity.name, entity.id)
+            if qualified_name:
+                self._resolve_external_reference(qualified_name, entity.id)
 
         elif isinstance(entity, Class):
-            names_to_register.append(entity.name)
+            self._symbol_table.register(
+                entity_id=entity.id,
+                name=entity.name,
+                file_path=entity.file_path,
+                is_exported=True,
+            )
+            self._resolve_external_reference(entity.name, entity.id)
 
         elif isinstance(entity, TypeDefinition):
-            names_to_register.append(entity.name)
-
-        # Register all names and resolve external references
-        for name in names_to_register:
-            self._symbol_table[name] = entity.id
-            self._resolve_external_reference(name, entity.id)
+            self._symbol_table.register(
+                entity_id=entity.id,
+                name=entity.name,
+                file_path=entity.file_path,
+                is_exported=True,
+            )
+            self._resolve_external_reference(entity.name, entity.id)
 
     def _resolve_external_reference(self, name: str, real_id: str) -> None:
         """Resolve external reference by redirecting edges to the real entity.
@@ -176,8 +358,8 @@ class GraphBuilder:
 
         # IMPORTS edges: file imports modules
         for import_name in file.imports:
-            # Try to resolve to internal file
-            target_id = self._resolve_import(import_name, file.file_path)
+            # Try to resolve to internal file using the language-aware resolver
+            target_id = self._resolve_import(import_name, file.file_path, file.language)
             if target_id:
                 self._storage.add_edge(file.id, target_id, EdgeType.IMPORTS)
             else:
@@ -196,49 +378,33 @@ class GraphBuilder:
         Returns:
             Entity ID or None if not found
         """
-        # Try exact match first
-        if name in self._symbol_table:
-            return self._symbol_table[name]
+        return self._symbol_table.resolve(name, context_file)
 
-        # Try file-qualified name
-        # e.g., for "process" in "src/utils.py", try "src/utils.py:process"
-        file_qualified = f"{context_file}:{name}"
-        if file_qualified in self._symbol_table:
-            return self._symbol_table[file_qualified]
-
-        return None
-
-    def _resolve_import(self, import_name: str, context_file: str) -> str | None:
+    def _resolve_import(
+        self, import_name: str, context_file: str, language: str = "python"
+    ) -> str | None:
         """Resolve an import to a file entity ID.
 
         Args:
             import_name: Import name (e.g., "os", "src.utils", "./utils")
             context_file: File path of the importing file
+            language: Programming language for language-specific resolution
 
         Returns:
             File entity ID or None if not found (external module)
         """
-        # For now, just try to find a file with matching name
-        # This is simplified - a full implementation would handle:
-        # - Relative imports
-        # - Package resolution
-        # - Module search paths
+        # Use the language-aware import resolver
+        resolved = self._import_resolver.resolve(import_name, context_file, language)
 
-        # Try direct match (Python module style: src.utils -> src/utils.py)
-        module_path = import_name.replace(".", "/")
-        possible_paths = [
-            f"{module_path}.py",
-            f"{module_path}/__init__.py",
-            f"{module_path}.ts",
-            f"{module_path}.js",
-            f"{module_path}/index.ts",
-            f"{module_path}/index.js",
-        ]
+        if resolved.is_external or resolved.resolved_path is None:
+            return None
 
-        for path in possible_paths:
-            # Look for file entity with this path
-            for node_id, data in self._storage.graph.nodes(data=True):
-                if data.get("type") == "file" and data.get("file_path", "").endswith(path):
+        # Find the file entity by path
+        resolved_path = resolved.resolved_path
+        for node_id, data in self._storage.graph.nodes(data=True):
+            if data.get("type") == "file":
+                file_path = data.get("file_path", "")
+                if file_path == resolved_path or file_path.endswith(f"/{resolved_path}"):
                     return node_id
 
         return None
@@ -254,16 +420,13 @@ class GraphBuilder:
         """
         file_path_str = str(file_path)
 
-        # Remove old entities
+        # Remove old entities and symbols
         removed = self._storage.remove_file(file_path_str)
         logger.debug(f"Removed {len(removed)} entities from {file_path_str}")
 
         # Remove old symbols from symbol table
         for entity_id in removed:
-            # Find and remove from symbol table
-            to_remove = [k for k, v in self._symbol_table.items() if v == entity_id]
-            for key in to_remove:
-                del self._symbol_table[key]
+            self._symbol_table.unregister(entity_id)
 
         # Add new entities
         for entity in entities:
@@ -287,9 +450,7 @@ class GraphBuilder:
 
         # Remove from symbol table
         for entity_id in removed:
-            to_remove = [k for k, v in self._symbol_table.items() if v == entity_id]
-            for key in to_remove:
-                del self._symbol_table[key]
+            self._symbol_table.unregister(entity_id)
 
         logger.debug(f"Removed {len(removed)} entities from {file_path_str}")
 
@@ -297,3 +458,8 @@ class GraphBuilder:
         """Clear the graph and symbol table."""
         self._storage.clear()
         self._symbol_table.clear()
+
+    @property
+    def symbol_table(self) -> ScopedSymbolTable:
+        """Access the symbol table for testing/debugging."""
+        return self._symbol_table

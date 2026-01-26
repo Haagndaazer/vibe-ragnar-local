@@ -151,6 +151,141 @@ TS_TYPE_QUERY = """
 ) @type.def
 """
 
+# Separate JavaScript query patterns
+# JS needs different queries because:
+# 1. JS uses `identifier` for class names, not `type_identifier`
+# 2. JS supports CommonJS require()
+# 3. Variable-assigned functions are more common in JS
+
+JS_FUNCTION_QUERY = """
+; Regular function declaration
+(function_declaration
+  name: (identifier) @function.name
+  parameters: (formal_parameters) @function.params
+  body: (statement_block) @function.body
+) @function.def
+
+; Method definition in class
+(method_definition
+  name: (property_identifier) @function.name
+  parameters: (formal_parameters) @function.params
+  body: (statement_block) @function.body
+) @function.def
+
+; Arrow function (standalone)
+(arrow_function
+  parameters: (formal_parameters) @function.params
+  body: (_) @function.body
+) @function.def
+
+; Variable-assigned function: const foo = function() {}
+(lexical_declaration
+  (variable_declarator
+    name: (identifier) @function.name
+    value: (function_expression
+      parameters: (formal_parameters) @function.params
+      body: (statement_block) @function.body
+    ) @function.def
+  )
+)
+
+; Variable-assigned arrow function: const foo = () => {}
+(lexical_declaration
+  (variable_declarator
+    name: (identifier) @function.name
+    value: (arrow_function
+      parameters: (formal_parameters) @function.params
+      body: (_) @function.body
+    ) @function.def
+  )
+)
+
+; var-assigned function: var foo = function() {}
+(variable_declaration
+  (variable_declarator
+    name: (identifier) @function.name
+    value: (function_expression
+      parameters: (formal_parameters) @function.params
+      body: (statement_block) @function.body
+    ) @function.def
+  )
+)
+
+; var-assigned arrow function: var foo = () => {}
+(variable_declaration
+  (variable_declarator
+    name: (identifier) @function.name
+    value: (arrow_function
+      parameters: (formal_parameters) @function.params
+      body: (_) @function.body
+    ) @function.def
+  )
+)
+"""
+
+JS_IMPORT_QUERY = """
+; ES6 import: import x from 'module'
+(import_statement
+  source: (string) @import.source
+) @import
+
+; ES6 named imports: import { x } from 'module'
+(import_clause
+  (named_imports
+    (import_specifier
+      name: (identifier) @import.name
+    )
+  )
+)
+
+; CommonJS require: const x = require('module')
+(lexical_declaration
+  (variable_declarator
+    value: (call_expression
+      function: (identifier) @_require
+      arguments: (arguments (string) @import.source)
+    )
+  )
+  (#eq? @_require "require")
+)
+
+; CommonJS require with var: var x = require('module')
+(variable_declaration
+  (variable_declarator
+    value: (call_expression
+      function: (identifier) @_require
+      arguments: (arguments (string) @import.source)
+    )
+  )
+  (#eq? @_require "require")
+)
+
+; Dynamic import: import('module')
+(call_expression
+  function: (import)
+  arguments: (arguments (string) @import.source)
+)
+"""
+
+JS_CALL_QUERY = """
+; Function call: foo()
+(call_expression
+  function: (identifier) @call.name
+)
+
+; Method call: obj.method()
+(call_expression
+  function: (member_expression
+    property: (property_identifier) @call.method
+  )
+)
+
+; new constructor: new Foo()
+(new_expression
+  constructor: (identifier) @call.name
+)
+"""
+
 # Tree-sitter query patterns for Go
 GO_FUNCTION_QUERY = """
 (function_declaration
@@ -410,10 +545,10 @@ def _create_language_configs() -> dict[str, LanguageConfig]:
             name="javascript",
             extensions=(".js", ".jsx", ".mjs", ".cjs"),
             language=Language(tsjs.language()),
-            function_query=TS_FUNCTION_QUERY,  # JS uses same queries as TS
+            function_query=JS_FUNCTION_QUERY,  # JS-specific queries
             class_query=JS_CLASS_QUERY,
-            import_query=TS_IMPORT_QUERY,
-            call_query=TS_CALL_QUERY,
+            import_query=JS_IMPORT_QUERY,
+            call_query=JS_CALL_QUERY,
         ),
         "go": LanguageConfig(
             name="go",

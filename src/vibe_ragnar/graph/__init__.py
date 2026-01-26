@@ -1,6 +1,7 @@
 """Graph module for code dependency analysis using NetworkX."""
 
-from .builder import GraphBuilder
+from .builder import GraphBuilder, ScopedSymbolTable
+from .import_resolver import ImportResolver, ResolvedImport
 from .queries import (
     find_paths,
     find_symbol,
@@ -21,6 +22,10 @@ __all__ = [
     "GraphStorage",
     # Builder
     "GraphBuilder",
+    "ScopedSymbolTable",
+    # Import Resolution
+    "ImportResolver",
+    "ResolvedImport",
     # Queries
     "find_paths",
     "find_symbol",
