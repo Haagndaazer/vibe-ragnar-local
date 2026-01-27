@@ -5,7 +5,7 @@ from typing import Any
 
 from fastmcp import Context
 
-from ..embeddings import EmbeddingSync, MongoDBStorage
+from ..embeddings import ChromaDBStorage, EmbeddingSync
 from ..graph import GraphBuilder, GraphStorage
 from ..parser import TreeSitterParser
 
@@ -31,7 +31,7 @@ def register_service_tools(mcp) -> None:
         """
         config = ctx.request_context.lifespan_context["config"]
         graph: GraphStorage = ctx.request_context.lifespan_context["graph"]
-        embedding_storage: MongoDBStorage = ctx.request_context.lifespan_context["embedding_storage"]
+        embedding_storage: ChromaDBStorage = ctx.request_context.lifespan_context["embedding_storage"]
         watcher_active = ctx.request_context.lifespan_context.get("watcher_active", False)
         indexing_complete = ctx.request_context.lifespan_context.get("indexing_complete", False)
         indexing_error = ctx.request_context.lifespan_context.get("indexing_error")

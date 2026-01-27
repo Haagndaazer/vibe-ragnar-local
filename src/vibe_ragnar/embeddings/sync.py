@@ -8,12 +8,11 @@ from ..parser.entities import (
     AnyEntity,
     Class,
     EmbeddableEntity,
-    File,
     Function,
     TypeDefinition,
 )
 from .generator import EmbeddingGenerator
-from .storage import MongoDBStorage
+from .storage import ChromaDBStorage
 
 logger = logging.getLogger(__name__)
 
@@ -41,14 +40,14 @@ class SyncResult:
 
 
 class EmbeddingSync:
-    """Synchronize embeddings between parsed entities and MongoDB storage."""
+    """Synchronize embeddings between parsed entities and ChromaDB storage."""
 
     BATCH_SIZE = 32  # Batch size for embedding generation
 
     def __init__(
         self,
         generator: EmbeddingGenerator,
-        storage: MongoDBStorage,
+        storage: ChromaDBStorage,
         repo_name: str,
     ):
         """Initialize the sync manager.

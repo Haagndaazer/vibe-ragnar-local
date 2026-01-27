@@ -4,7 +4,7 @@ from typing import Any
 
 from fastmcp import Context
 
-from ..embeddings import EmbeddingGenerator, MongoDBStorage
+from ..embeddings import ChromaDBStorage, EmbeddingGenerator
 
 
 def register_search_tools(mcp) -> None:
@@ -39,7 +39,7 @@ def register_search_tools(mcp) -> None:
             Matching code entities with similarity scores
         """
         generator: EmbeddingGenerator = ctx.request_context.lifespan_context["embedding_generator"]
-        storage: MongoDBStorage = ctx.request_context.lifespan_context["embedding_storage"]
+        storage: ChromaDBStorage = ctx.request_context.lifespan_context["embedding_storage"]
         config = ctx.request_context.lifespan_context["config"]
 
         # Enforce limit

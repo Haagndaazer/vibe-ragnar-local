@@ -58,3 +58,6 @@ Thumbs.db
 
 # Claude
 .claude/
+
+# Local embeddings storage
+.embeddings/

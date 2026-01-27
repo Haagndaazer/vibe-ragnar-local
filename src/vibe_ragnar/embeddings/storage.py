@@ -1,96 +1,36 @@
-"""MongoDB Atlas storage for vector embeddings."""
+"""ChromaDB storage for vector embeddings."""
 
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
-from pymongo import MongoClient, UpdateOne
-from pymongo.collection import Collection
-from pymongo.database import Database
-from pymongo.operations import SearchIndexModel
+import chromadb
 
 logger = logging.getLogger(__name__)
 
 
-class MongoDBStorage:
-    """Storage for code embeddings in MongoDB Atlas with vector search."""
+class ChromaDBStorage:
+    """Storage for code embeddings using ChromaDB with local persistence."""
 
     def __init__(
         self,
-        uri: str,
-        database: str = "vibe_ragnar",
-        collection: str = "code_embeddings",
+        persist_directory: Path,
+        collection_name: str = "code_embeddings",
     ):
-        """Initialize MongoDB connection.
+        """Initialize ChromaDB connection.
 
         Args:
-            uri: MongoDB connection URI
-            database: Database name
-            collection: Collection name for embeddings
+            persist_directory: Directory for persistent storage
+            collection_name: Collection name for embeddings
         """
-        self._client = MongoClient(uri)
-        self._db: Database = self._client[database]
-        self._collection: Collection = self._db[collection]
-        self._index_name = "vector_index"
-
-    def ensure_vector_index(self, dimensions: int = 1024) -> None:
-        """Create the vector search index if it doesn't exist.
-
-        Args:
-            dimensions: Embedding vector dimensions
-        """
-        # Check if index already exists
-        existing_indexes = list(self._collection.list_search_indexes())
-        for idx in existing_indexes:
-            if idx.get("name") == self._index_name:
-                logger.info(f"Vector index '{self._index_name}' already exists")
-                return
-
-        # Create the vector search index
-        index_definition = {
-            "fields": [
-                {
-                    "type": "vector",
-                    "path": "embedding",
-                    "numDimensions": dimensions,
-                    "similarity": "cosine",
-                },
-                {
-                    "type": "filter",
-                    "path": "repo",
-                },
-                {
-                    "type": "filter",
-                    "path": "entity_type",
-                },
-                {
-                    "type": "filter",
-                    "path": "file_path",
-                },
-            ]
-        }
-
-        try:
-            search_index = SearchIndexModel(
-                definition=index_definition,
-                name=self._index_name,
-                type="vectorSearch",
-            )
-            self._collection.create_search_index(search_index)
-            logger.info(f"Created vector index '{self._index_name}'")
-        except Exception as e:
-            # Index might already exist or Atlas might not support vector search
-            logger.warning(f"Could not create vector index: {e}")
-
-    def ensure_standard_indexes(self) -> None:
-        """Create standard indexes for efficient querying."""
-        # Index for content hash lookups
-        self._collection.create_index("content_hash")
-        # Index for file-based queries
-        self._collection.create_index([("repo", 1), ("file_path", 1)])
-        # Index for entity type filtering
-        self._collection.create_index([("repo", 1), ("entity_type", 1)])
-        logger.info("Standard indexes created")
+        persist_directory.mkdir(parents=True, exist_ok=True)
+        self._client = chromadb.PersistentClient(path=str(persist_directory))
+        self._collection = self._client.get_or_create_collection(
+            name=collection_name,
+            metadata={"hnsw:space": "cosine"},
+        )
+        logger.info(f"ChromaDB initialized at {persist_directory}")
 
     def upsert_embedding(
         self,
@@ -101,31 +41,15 @@ class MongoDBStorage:
         """Insert or update an embedding.
 
         Args:
-            entity_id: Unique entity ID (used as _id)
+            entity_id: Unique entity ID
             embedding: Embedding vector
             metadata: Entity metadata (content_hash, entity_type, file_path, etc.)
         """
-        document = {
-            "_id": entity_id,
-            "embedding": embedding,
-            "content_hash": metadata.get("content_hash"),
-            "repo": metadata.get("repo"),
-            "entity_type": metadata.get("entity_type"),
-            "file_path": metadata.get("file_path"),
-            "name": metadata.get("name"),
-            "signature": metadata.get("signature"),
-            "docstring": metadata.get("docstring"),
-            "code": metadata.get("code"),
-            "class_name": metadata.get("class_name"),
-            "start_line": metadata.get("start_line"),
-            "end_line": metadata.get("end_line"),
-            "updated_at": datetime.utcnow(),
-        }
-
-        self._collection.update_one(
-            {"_id": entity_id},
-            {"$set": document},
-            upsert=True,
+        flat_metadata = self._flatten_metadata(metadata)
+        self._collection.upsert(
+            ids=[entity_id],
+            embeddings=[embedding],
+            metadatas=[flat_metadata],
         )
 
     def bulk_upsert(
@@ -143,36 +67,51 @@ class MongoDBStorage:
         if not items:
             return 0
 
-        operations = []
-        now = datetime.utcnow()
+        ids = []
+        embeddings = []
+        metadatas = []
 
         for entity_id, embedding, metadata in items:
-            document = {
-                "_id": entity_id,
-                "embedding": embedding,
-                "content_hash": metadata.get("content_hash"),
-                "repo": metadata.get("repo"),
-                "entity_type": metadata.get("entity_type"),
-                "file_path": metadata.get("file_path"),
-                "name": metadata.get("name"),
-                "signature": metadata.get("signature"),
-                "docstring": metadata.get("docstring"),
-                "code": metadata.get("code"),
-                "class_name": metadata.get("class_name"),
-                "start_line": metadata.get("start_line"),
-                "end_line": metadata.get("end_line"),
-                "updated_at": now,
-            }
+            ids.append(entity_id)
+            embeddings.append(embedding)
+            metadatas.append(self._flatten_metadata(metadata))
 
-            operations.append(
-                UpdateOne({"_id": entity_id}, {"$set": document}, upsert=True)
-            )
+        self._collection.upsert(
+            ids=ids,
+            embeddings=embeddings,
+            metadatas=metadatas,
+        )
 
-        if operations:
-            result = self._collection.bulk_write(operations)
-            return result.upserted_count + result.modified_count
+        return len(items)
 
-        return 0
+    def _flatten_metadata(self, metadata: dict[str, Any]) -> dict[str, str | int | float | bool]:
+        """Flatten metadata to ChromaDB-compatible types.
+
+        ChromaDB only supports str, int, float, bool as metadata values.
+
+        Args:
+            metadata: Original metadata dict
+
+        Returns:
+            Flattened metadata with only primitive types
+        """
+        flat: dict[str, str | int | float | bool] = {}
+        now = datetime.utcnow().isoformat()
+
+        for key, value in metadata.items():
+            if value is None:
+                continue
+            if isinstance(value, (str, int, float, bool)):
+                flat[key] = value
+            elif isinstance(value, list):
+                # Convert lists to comma-separated strings
+                flat[key] = ",".join(str(v) for v in value)
+            else:
+                # Convert other types to string
+                flat[key] = str(value)
+
+        flat["updated_at"] = now
+        return flat
 
     def delete_embedding(self, entity_id: str) -> bool:
         """Delete an embedding by entity ID.
@@ -181,10 +120,13 @@ class MongoDBStorage:
             entity_id: Entity ID to delete
 
         Returns:
-            True if deleted, False if not found
+            True if deleted (ChromaDB doesn't report actual deletion)
         """
-        result = self._collection.delete_one({"_id": entity_id})
-        return result.deleted_count > 0
+        try:
+            self._collection.delete(ids=[entity_id])
+            return True
+        except Exception:
+            return False
 
     def delete_by_file(self, repo: str, file_path: str) -> int:
         """Delete all embeddings for a specific file.
@@ -196,11 +138,16 @@ class MongoDBStorage:
         Returns:
             Number of deleted documents
         """
-        result = self._collection.delete_many({
-            "repo": repo,
-            "file_path": file_path,
-        })
-        return result.deleted_count
+        # Get all IDs matching the file
+        results = self._collection.get(
+            where={"$and": [{"repo": repo}, {"file_path": file_path}]},
+        )
+
+        if results["ids"]:
+            self._collection.delete(ids=results["ids"])
+            return len(results["ids"])
+
+        return 0
 
     def delete_by_repo(self, repo: str) -> int:
         """Delete all embeddings for a repository.
@@ -211,8 +158,13 @@ class MongoDBStorage:
         Returns:
             Number of deleted documents
         """
-        result = self._collection.delete_many({"repo": repo})
-        return result.deleted_count
+        results = self._collection.get(where={"repo": repo})
+
+        if results["ids"]:
+            self._collection.delete(ids=results["ids"])
+            return len(results["ids"])
+
+        return 0
 
     def get_by_id(self, entity_id: str) -> dict[str, Any] | None:
         """Get an embedding document by ID.
@@ -223,7 +175,19 @@ class MongoDBStorage:
         Returns:
             Document or None if not found
         """
-        return self._collection.find_one({"_id": entity_id})
+        results = self._collection.get(
+            ids=[entity_id],
+            include=["metadatas", "embeddings"],
+        )
+
+        if results["ids"]:
+            return {
+                "_id": results["ids"][0],
+                "metadata": results["metadatas"][0] if results["metadatas"] else {},
+                "embedding": results["embeddings"][0] if results["embeddings"] else None,
+            }
+
+        return None
 
     def get_content_hashes(self, repo: str) -> dict[str, str]:
         """Get all entity IDs and their content hashes for a repository.
@@ -234,11 +198,18 @@ class MongoDBStorage:
         Returns:
             Dictionary mapping entity_id to content_hash
         """
-        cursor = self._collection.find(
-            {"repo": repo},
-            {"_id": 1, "content_hash": 1},
+        results = self._collection.get(
+            where={"repo": repo},
+            include=["metadatas"],
         )
-        return {doc["_id"]: doc.get("content_hash", "") for doc in cursor}
+
+        hashes: dict[str, str] = {}
+        for i, entity_id in enumerate(results["ids"]):
+            metadata = results["metadatas"][i] if results["metadatas"] else {}
+            content_hash = metadata.get("content_hash", "")
+            hashes[entity_id] = content_hash if isinstance(content_hash, str) else ""
+
+        return hashes
 
     def vector_search(
         self,
@@ -260,93 +231,69 @@ class MongoDBStorage:
         Returns:
             List of matching documents with similarity scores
         """
-        # Build filter
-        filter_conditions = {}
+        # Build where filter
+        where_conditions = []
         if repo:
-            filter_conditions["repo"] = repo
+            where_conditions.append({"repo": repo})
         if entity_type:
-            filter_conditions["entity_type"] = entity_type
+            where_conditions.append({"entity_type": entity_type})
 
-        # Build aggregation pipeline
-        pipeline = [
-            {
-                "$vectorSearch": {
-                    "index": self._index_name,
-                    "path": "embedding",
-                    "queryVector": query_embedding,
-                    "numCandidates": limit * 10,  # Over-fetch for filtering
-                    "limit": limit * 2 if file_path_prefix else limit,
-                    "filter": filter_conditions if filter_conditions else None,
-                }
-            },
-            {
-                "$project": {
-                    "_id": 1,
-                    "name": 1,
-                    "file_path": 1,
-                    "entity_type": 1,
-                    "signature": 1,
-                    "docstring": 1,
-                    "code": 1,
-                    "class_name": 1,
-                    "start_line": 1,
-                    "end_line": 1,
-                    "score": {"$meta": "vectorSearchScore"},
-                }
-            },
-        ]
+        where_filter = None
+        if len(where_conditions) == 1:
+            where_filter = where_conditions[0]
+        elif len(where_conditions) > 1:
+            where_filter = {"$and": where_conditions}
 
-        # Remove None filter
-        if not filter_conditions:
-            del pipeline[0]["$vectorSearch"]["filter"]
+        # Query more results if we need to filter by prefix
+        query_limit = limit * 3 if file_path_prefix else limit
 
         try:
-            results = list(self._collection.aggregate(pipeline))
-
-            # Apply file_path_prefix filter if specified
-            if file_path_prefix:
-                results = [
-                    r for r in results
-                    if r.get("file_path", "").startswith(file_path_prefix)
-                ][:limit]
-
-            return results
+            results = self._collection.query(
+                query_embeddings=[query_embedding],
+                n_results=query_limit,
+                where=where_filter,
+                include=["metadatas", "distances"],
+            )
         except Exception as e:
             logger.error(f"Vector search failed: {e}")
-            # Fallback to regular search if vector search not available
-            return self._fallback_search(repo, entity_type, file_path_prefix, limit)
+            return []
 
-    def _fallback_search(
-        self,
-        repo: str | None,
-        entity_type: str | None,
-        file_path_prefix: str | None,
-        limit: int,
-    ) -> list[dict[str, Any]]:
-        """Fallback search when vector search is not available."""
-        query: dict[str, Any] = {}
-        if repo:
-            query["repo"] = repo
-        if entity_type:
-            query["entity_type"] = entity_type
-        if file_path_prefix:
-            query["file_path"] = {"$regex": f"^{file_path_prefix}"}
+        # Process results
+        output: list[dict[str, Any]] = []
+        ids = results["ids"][0] if results["ids"] else []
+        metadatas = results["metadatas"][0] if results["metadatas"] else []
+        distances = results["distances"][0] if results["distances"] else []
 
-        cursor = self._collection.find(
-            query,
-            {
-                "_id": 1,
-                "name": 1,
-                "file_path": 1,
-                "entity_type": 1,
-                "signature": 1,
-                "docstring": 1,
-                "start_line": 1,
-                "end_line": 1,
-            },
-        ).limit(limit)
+        for i, entity_id in enumerate(ids):
+            metadata = metadatas[i] if i < len(metadatas) else {}
+            distance = distances[i] if i < len(distances) else 1.0
 
-        return list(cursor)
+            # Apply file_path_prefix filter
+            file_path = metadata.get("file_path", "")
+            if file_path_prefix and not file_path.startswith(file_path_prefix):
+                continue
+
+            # Convert distance to similarity score (cosine: score = 1 - distance)
+            score = 1.0 - distance
+
+            output.append({
+                "_id": entity_id,
+                "name": metadata.get("name"),
+                "file_path": file_path,
+                "entity_type": metadata.get("entity_type"),
+                "signature": metadata.get("signature"),
+                "docstring": metadata.get("docstring"),
+                "code": metadata.get("code"),
+                "class_name": metadata.get("class_name"),
+                "start_line": metadata.get("start_line"),
+                "end_line": metadata.get("end_line"),
+                "score": score,
+            })
+
+            if len(output) >= limit:
+                break
+
+        return output
 
     def count_documents(self, filter: dict[str, Any] | None = None) -> int:
         """Count documents in the collection.
@@ -357,8 +304,11 @@ class MongoDBStorage:
         Returns:
             Document count
         """
-        return self._collection.count_documents(filter or {})
+        if filter:
+            results = self._collection.get(where=filter)
+            return len(results["ids"])
+        return self._collection.count()
 
     def close(self) -> None:
-        """Close the MongoDB connection."""
-        self._client.close()
+        """Close the ChromaDB connection (no-op for PersistentClient)."""
+        pass

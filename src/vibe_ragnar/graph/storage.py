@@ -1,7 +1,9 @@
-"""Graph storage using NetworkX for in-memory code dependency graph."""
+"""Graph storage using NetworkX for in-memory code dependency graph with pickle persistence."""
 
 import logging
+import pickle
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 import networkx as nx
@@ -23,11 +25,20 @@ class EdgeType(str, Enum):
 
 
 class GraphStorage:
-    """In-memory graph storage using NetworkX DiGraph."""
+    """In-memory graph storage using NetworkX DiGraph with optional persistence."""
 
-    def __init__(self):
-        """Initialize an empty directed graph."""
+    def __init__(self, persist_path: Path | None = None):
+        """Initialize a directed graph, optionally loading from disk.
+
+        Args:
+            persist_path: Optional path for pickle persistence
+        """
+        self._persist_path = persist_path
         self._graph = nx.DiGraph()
+
+        # Try to load from disk if path exists
+        if persist_path and persist_path.exists():
+            self.load()
 
     @property
     def graph(self) -> nx.DiGraph:
@@ -262,3 +273,41 @@ class GraphStorage:
         for entity_id in to_remove:
             self._graph.remove_node(entity_id)
         return to_remove
+
+    def save(self) -> bool:
+        """Save the graph to disk using pickle.
+
+        Returns:
+            True if saved successfully, False otherwise
+        """
+        if not self._persist_path:
+            return False
+
+        try:
+            self._persist_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self._persist_path, "wb") as f:
+                pickle.dump(self._graph, f, protocol=pickle.HIGHEST_PROTOCOL)
+            logger.info(f"Graph saved to {self._persist_path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save graph: {e}")
+            return False
+
+    def load(self) -> bool:
+        """Load the graph from disk.
+
+        Returns:
+            True if loaded successfully, False otherwise
+        """
+        if not self._persist_path or not self._persist_path.exists():
+            return False
+
+        try:
+            with open(self._persist_path, "rb") as f:
+                self._graph = pickle.load(f)
+            logger.info(f"Graph loaded from {self._persist_path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to load graph: {e}")
+            self._graph = nx.DiGraph()
+            return False

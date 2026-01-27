@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -16,17 +17,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Required settings
-    mongodb_uri: str = Field(
-        ...,
-        description="MongoDB Atlas connection string",
-    )
-    voyage_api_key: str = Field(
-        ...,
-        description="Voyage AI API key for embeddings",
-    )
-
-    # Optional settings with defaults
+    # Repository settings
     repo_path: Path = Field(
         default_factory=Path.cwd,
         description="Path to the repository to index",
@@ -39,27 +30,47 @@ class Settings(BaseSettings):
         default="INFO",
         description="Logging level",
     )
+
+    # Local storage settings
+    persist_dir: str = Field(
+        default=".embeddings",
+        description="Directory for local storage (relative to repo_path)",
+    )
+
+    # Embedding backend settings
+    embedding_backend: Literal["sentence-transformers", "ollama"] = Field(
+        default="sentence-transformers",
+        description="Embedding backend to use",
+    )
     embedding_model: str = Field(
-        default="voyage-code-3",
-        description="Voyage AI model for code embeddings",
+        default="nomic-ai/nomic-embed-text-v1.5",
+        description="Model name for sentence-transformers backend",
     )
     embedding_dimensions: int = Field(
-        default=1024,
+        default=768,
         description="Embedding vector dimensions",
     )
+
+    # Ollama settings
+    ollama_base_url: str = Field(
+        default="http://localhost:11434",
+        description="Ollama server base URL",
+    )
+    ollama_model: str = Field(
+        default="nomic-embed-text",
+        description="Ollama model name for embeddings",
+    )
+
+    # ChromaDB settings
+    chromadb_collection: str = Field(
+        default="code_embeddings",
+        description="ChromaDB collection name",
+    )
+
+    # Watcher settings
     debounce_seconds: float = Field(
         default=5.0,
         description="Debounce delay for file watcher in seconds",
-    )
-
-    # MongoDB settings
-    mongodb_database: str = Field(
-        default="vibe_ragnar",
-        description="MongoDB database name",
-    )
-    mongodb_collection: str = Field(
-        default="code_embeddings",
-        description="MongoDB collection name for embeddings",
     )
 
     @field_validator("repo_path", mode="before")
@@ -87,6 +98,16 @@ class Settings(BaseSettings):
     def effective_repo_name(self) -> str:
         """Get the repository name, defaulting to directory name."""
         return self.repo_name or self.repo_path.name
+
+    @property
+    def chromadb_path(self) -> Path:
+        """Get the ChromaDB storage path."""
+        return self.repo_path / self.persist_dir / "chromadb"
+
+    @property
+    def graph_pickle_path(self) -> Path:
+        """Get the graph pickle storage path."""
+        return self.repo_path / self.persist_dir / "graph.pickle"
 
 
 def setup_logging(level: str) -> None:

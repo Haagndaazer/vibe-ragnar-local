@@ -9,7 +9,7 @@ from typing import Any
 from fastmcp import FastMCP
 
 from .config import Settings, setup_logging
-from .embeddings import EmbeddingGenerator, EmbeddingSync, MongoDBStorage
+from .embeddings import ChromaDBStorage, EmbeddingGenerator, EmbeddingSync
 from .graph import GraphBuilder, GraphStorage
 from .parser import TreeSitterParser
 from .tools import register_all_tools
@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 def create_file_change_handler(
     parser: TreeSitterParser,
     graph_builder: GraphBuilder,
+    graph_storage: GraphStorage,
     embedding_sync: EmbeddingSync,
     repo_root: Path,
 ):
@@ -29,6 +30,7 @@ def create_file_change_handler(
     Args:
         parser: TreeSitterParser instance
         graph_builder: GraphBuilder instance
+        graph_storage: GraphStorage instance for persistence
         embedding_sync: EmbeddingSync instance
         repo_root: Repository root path
 
@@ -62,12 +64,16 @@ def create_file_change_handler(
             except Exception as e:
                 logger.error(f"Failed to process {file_path}: {e}")
 
+        # Save graph after processing changes
+        graph_storage.save()
+
     return handle_changes
 
 
 def run_initial_indexing(
     parser: TreeSitterParser,
     graph_builder: GraphBuilder,
+    graph_storage: GraphStorage,
     embedding_sync: EmbeddingSync,
     repo_path: Path,
     context: dict[str, Any],
@@ -77,6 +83,7 @@ def run_initial_indexing(
     Args:
         parser: TreeSitterParser instance
         graph_builder: GraphBuilder instance
+        graph_storage: GraphStorage instance for persistence
         embedding_sync: EmbeddingSync instance
         repo_path: Repository root path
         context: Server context dict to update indexing_complete flag
@@ -96,7 +103,8 @@ def run_initial_indexing(
         # Phase 2: Building graph
         context["indexing_phase"] = "building_graph"
         graph_builder.build_from_entities(entities)
-        logger.info("Graph built successfully")
+        graph_storage.save()  # Persist graph after initial build
+        logger.info("Graph built and saved successfully")
 
         # Phase 3: Syncing embeddings
         context["indexing_phase"] = "syncing_embeddings"
@@ -125,31 +133,20 @@ async def lifespan(server: FastMCP):
     logger.info(f"Starting Vibe RAGnar for repository: {config.effective_repo_name}")
     logger.info(f"Repository path: {config.repo_path}")
 
-    # Initialize MongoDB storage
-    logger.info("Connecting to MongoDB...")
-    embedding_storage = MongoDBStorage(
-        uri=config.mongodb_uri,
-        database=config.mongodb_database,
-        collection=config.mongodb_collection,
+    # Initialize ChromaDB storage
+    logger.info(f"Initializing ChromaDB at {config.chromadb_path}...")
+    embedding_storage = ChromaDBStorage(
+        persist_directory=config.chromadb_path,
+        collection_name=config.chromadb_collection,
     )
-    embedding_storage.ensure_standard_indexes()
-
-    try:
-        embedding_storage.ensure_vector_index(config.embedding_dimensions)
-    except Exception as e:
-        logger.warning(f"Could not create vector index (vector search may not work): {e}")
 
     # Initialize embedding generator
-    logger.info("Initializing Voyage AI client...")
-    embedding_generator = EmbeddingGenerator(
-        api_key=config.voyage_api_key,
-        model=config.embedding_model,
-        dimensions=config.embedding_dimensions,
-    )
+    logger.info(f"Initializing embedding backend ({config.embedding_backend})...")
+    embedding_generator = EmbeddingGenerator.from_config(config)
 
-    # Initialize graph storage
-    logger.info("Initializing graph storage...")
-    graph_storage = GraphStorage()
+    # Initialize graph storage with persistence
+    logger.info(f"Initializing graph storage at {config.graph_pickle_path}...")
+    graph_storage = GraphStorage(persist_path=config.graph_pickle_path)
 
     # Initialize parser
     logger.info("Initializing parser...")
@@ -186,7 +183,7 @@ async def lifespan(server: FastMCP):
     # Start background indexing
     indexing_thread = threading.Thread(
         target=run_initial_indexing,
-        args=(parser, graph_builder, embedding_sync, config.repo_path, context),
+        args=(parser, graph_builder, graph_storage, embedding_sync, config.repo_path, context),
         daemon=True,
     )
     indexing_thread.start()
@@ -196,6 +193,7 @@ async def lifespan(server: FastMCP):
     change_handler = create_file_change_handler(
         parser=parser,
         graph_builder=graph_builder,
+        graph_storage=graph_storage,
         embedding_sync=embedding_sync,
         repo_root=config.repo_path,
     )
@@ -218,6 +216,7 @@ async def lifespan(server: FastMCP):
     # Cleanup
     logger.info("Shutting down Vibe RAGnar...")
     watcher.stop()
+    graph_storage.save()  # Save graph on shutdown
     embedding_storage.close()
     logger.info("Shutdown complete")
 
