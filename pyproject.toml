@@ -17,6 +17,7 @@ dependencies = [
     "tree-sitter-java>=0.23.0",
     "tree-sitter-c>=0.23.0",
     "tree-sitter-cpp>=0.23.0",
+    "tree-sitter-language-pack>=0.13.0",
     "networkx>=3.0",
     "chromadb>=0.5.0",
     "sentence-transformers>=3.0.0",

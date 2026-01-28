@@ -869,3 +869,211 @@ T max(T a, T b) {
         functions = [e for e in entities if isinstance(e, Function)]
         # Template functions should be captured
         assert len(functions) >= 1
+
+
+class TestDartParsing:
+    """Tests for Dart/Flutter parsing."""
+
+    def test_parse_function(self):
+        """Test parsing Dart functions."""
+        code = '''
+void greet(String name) {
+  print('Hello, $name!');
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".dart", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        assert len(functions) == 1
+        assert functions[0].name == "greet"
+
+    def test_parse_async_function(self):
+        """Test parsing Dart async functions."""
+        code = '''
+Future<String> fetchData() async {
+  return await http.get('url');
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".dart", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        assert len(functions) == 1
+        assert functions[0].name == "fetchData"
+
+    def test_parse_class_with_methods(self):
+        """Test parsing Dart class with methods."""
+        code = '''
+class Greeter {
+  String prefix;
+
+  void sayHello(String name) {
+    print('$prefix, $name!');
+  }
+
+  void sayGoodbye(String name) {
+    print('Goodbye, $name!');
+  }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".dart", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        classes = [e for e in entities if isinstance(e, Class)]
+        assert len(classes) == 1
+        assert classes[0].name == "Greeter"
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        assert len(functions) == 2
+        names = {f.name for f in functions}
+        assert "sayHello" in names
+        assert "sayGoodbye" in names
+
+    def test_parse_getter_setter(self):
+        """Test parsing Dart getters and setters."""
+        code = '''
+class Counter {
+  int _value = 0;
+
+  int get value => _value;
+
+  set value(int v) => _value = v;
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".dart", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        # Should capture both getter and setter
+        assert len(functions) >= 2
+        names = {f.name for f in functions}
+        assert "value" in names
+
+    def test_parse_mixin(self):
+        """Test parsing Dart mixins."""
+        code = '''
+mixin Swimmer {
+  void swim() {
+    print('Swimming');
+  }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".dart", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        classes = [e for e in entities if isinstance(e, Class)]
+        assert len(classes) == 1
+        assert classes[0].name == "Swimmer"
+
+    def test_parse_extension(self):
+        """Test parsing Dart extensions."""
+        code = '''
+extension StringExtension on String {
+  String get reversed => split('').reversed.join();
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".dart", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        classes = [e for e in entities if isinstance(e, Class)]
+        assert len(classes) == 1
+        assert classes[0].name == "StringExtension"
+
+    def test_parse_enum(self):
+        """Test parsing Dart enums."""
+        code = '''
+enum Status {
+  pending,
+  approved,
+  rejected,
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".dart", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        classes = [e for e in entities if isinstance(e, Class)]
+        assert len(classes) == 1
+        assert classes[0].name == "Status"
+
+    def test_parse_imports(self):
+        """Test parsing Dart imports."""
+        code = """
+import 'dart:io';
+import 'package:flutter/material.dart';
+import '../utils/helpers.dart';
+
+void main() {
+  runApp(MyApp());
+}
+"""
+        with NamedTemporaryFile(mode="w", suffix=".dart", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        files = [e for e in entities if isinstance(e, File)]
+        assert len(files) == 1
+        # Check that imports are extracted
+        imports = files[0].imports
+        assert len(imports) >= 3
+
+    def test_no_duplicate_functions(self):
+        """Test that functions are not duplicated (both top-level and methods)."""
+        code = '''
+void topLevelFunction() {
+  print('top level');
+}
+
+class MyClass {
+  void methodOne() {
+    print('method one');
+  }
+
+  void methodTwo() {
+    print('method two');
+  }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".dart", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        # Should be exactly 3: topLevelFunction, methodOne, methodTwo
+        assert len(functions) == 3
+        names = [f.name for f in functions]
+        assert names.count("topLevelFunction") == 1
+        assert names.count("methodOne") == 1
+        assert names.count("methodTwo") == 1
+
+    def test_supports_dart_file(self):
+        """Test that .dart files are supported."""
+        parser = TreeSitterParser("test-repo")
+        assert parser.supports_file("main.dart")
+        assert parser.supports_file("lib/widget.dart")
+        assert parser.supports_file("/path/to/app.dart")

@@ -12,6 +12,7 @@ import tree_sitter_python as tspython
 import tree_sitter_rust as tsrust
 import tree_sitter_typescript as tsts
 from tree_sitter import Language
+from tree_sitter_language_pack import get_language as get_language_pack
 
 
 @dataclass
@@ -518,6 +519,119 @@ CPP_CALL_QUERY = """
 )
 """
 
+# Tree-sitter query patterns for Dart
+# Note: Dart has a unique AST structure where functions are split into
+# function_signature + function_body nodes at the top level.
+# Dart uses positional children, not named fields (e.g., (identifier) not name: (identifier))
+DART_FUNCTION_QUERY = """
+; Top-level function declarations (direct child of program - avoids matching nested)
+(program
+  (function_signature
+    (identifier) @function.name
+  ) @function.def
+)
+
+; Method declarations inside classes (regular methods)
+(method_signature
+  (function_signature
+    (identifier) @function.name
+  )
+) @function.def
+
+; Getter declarations
+(method_signature
+  (getter_signature
+    (identifier) @function.name
+  )
+) @function.def
+
+; Setter declarations
+(method_signature
+  (setter_signature
+    (identifier) @function.name
+  )
+) @function.def
+"""
+
+DART_CLASS_QUERY = """
+; Class declarations
+(class_definition
+  (identifier) @class.name
+  (class_body) @class.body
+) @class.def
+
+; Mixin declarations
+(mixin_declaration
+  (identifier) @class.name
+  (class_body) @class.body
+) @class.def
+
+; Extension declarations
+(extension_declaration
+  (identifier) @class.name
+) @class.def
+
+; Enum declarations
+(enum_declaration
+  (identifier) @class.name
+) @class.def
+"""
+
+DART_IMPORT_QUERY = """
+; Import statements: import 'package:foo/bar.dart';
+(import_specification
+  (configurable_uri
+    (uri
+      (string_literal) @import.path
+    )
+  )
+) @import
+
+; Export statements: export 'src/widget.dart';
+(library_export
+  (configurable_uri
+    (uri
+      (string_literal) @import.path
+    )
+  )
+) @import
+
+; Part directives: part 'part_file.dart';
+(part_directive
+  (uri
+    (string_literal) @import.path
+  )
+) @import
+"""
+
+DART_CALL_QUERY = """
+; Simple function call: foo()
+; In Dart, calls are identifier + selector with argument_part
+(expression_statement
+  (identifier) @call.name
+  (selector
+    (argument_part)
+  )
+)
+
+; Method/property access call: obj.method()
+(expression_statement
+  (identifier)
+  (selector
+    (unconditional_assignable_selector
+      (identifier) @call.method
+    )
+  )
+)
+"""
+
+DART_TYPE_QUERY = """
+; Type alias: typedef IntList = List<int>;
+(type_alias
+  (type_identifier) @type.name
+) @type.def
+"""
+
 
 def _create_language_configs() -> dict[str, LanguageConfig]:
     """Create language configurations with Tree-sitter languages."""
@@ -596,6 +710,16 @@ def _create_language_configs() -> dict[str, LanguageConfig]:
             class_query=CPP_CLASS_QUERY,
             import_query=CPP_IMPORT_QUERY,
             call_query=CPP_CALL_QUERY,
+        ),
+        "dart": LanguageConfig(
+            name="dart",
+            extensions=(".dart",),
+            language=get_language_pack("dart"),
+            function_query=DART_FUNCTION_QUERY,
+            class_query=DART_CLASS_QUERY,
+            import_query=DART_IMPORT_QUERY,
+            call_query=DART_CALL_QUERY,
+            type_query=DART_TYPE_QUERY,
         ),
     }
 
@@ -718,6 +842,13 @@ IGNORED_DIRECTORIES = frozenset({
 
     # === Rust ===
     "target",
+
+    # === Dart / Flutter ===
+    ".dart_tool",
+    ".pub-cache",
+    ".pub",
+    ".packages",
+    ".fvm",
 
     # === Java ===
     ".gradle",
