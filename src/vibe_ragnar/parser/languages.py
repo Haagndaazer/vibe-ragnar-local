@@ -551,6 +551,21 @@ DART_FUNCTION_QUERY = """
     (identifier) @function.name
   )
 ) @function.def
+
+; Default and named constructors (wrapped in declaration)
+(declaration
+  (constructor_signature) @function.def
+)
+
+; Factory constructors (wrapped in method_signature)
+(method_signature
+  (factory_constructor_signature) @function.def
+)
+
+; Const constructors (wrapped in declaration)
+(declaration
+  (constant_constructor_signature) @function.def
+)
 """
 
 DART_CLASS_QUERY = """

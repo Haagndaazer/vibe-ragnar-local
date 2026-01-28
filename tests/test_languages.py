@@ -1077,3 +1077,221 @@ class MyClass {
         assert parser.supports_file("main.dart")
         assert parser.supports_file("lib/widget.dart")
         assert parser.supports_file("/path/to/app.dart")
+
+
+class TestDartConstructorParsing:
+    """Tests for Dart constructor parsing."""
+
+    def test_default_constructor(self):
+        """Test default constructor extraction."""
+        code = '''
+class Point {
+  final int x, y;
+  Point(this.x, this.y);
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".dart", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        constructors = [f for f in functions if f.is_constructor]
+        assert len(constructors) == 1
+        assert constructors[0].name == "Point"
+        assert constructors[0].class_name == "Point"
+
+    def test_named_constructor(self):
+        """Test named constructor extraction."""
+        code = '''
+class Point {
+  final int x, y;
+  Point(this.x, this.y);
+  Point.origin() : x = 0, y = 0;
+  Point.fromJson(Map json) : x = json['x'], y = json['y'];
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".dart", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        constructors = [f for f in functions if f.is_constructor]
+        assert len(constructors) == 3
+        names = {c.name for c in constructors}
+        assert "Point" in names  # Default constructor
+        assert "origin" in names  # Named constructor
+        assert "fromJson" in names  # Named constructor
+
+    def test_factory_constructor(self):
+        """Test factory constructor extraction."""
+        code = '''
+class Logger {
+  static final Logger _instance = Logger._internal();
+  factory Logger() => _instance;
+  factory Logger.named(String name) => Logger._internal();
+  Logger._internal();
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".dart", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        constructors = [f for f in functions if f.is_constructor]
+        # Should have: factory Logger(), factory Logger.named(), Logger._internal()
+        assert len(constructors) >= 3
+        names = {c.name for c in constructors}
+        assert "Logger" in names
+        assert "named" in names
+        assert "_internal" in names
+
+    def test_const_constructor(self):
+        """Test const constructor extraction."""
+        code = '''
+class ImmutablePoint {
+  final int x, y;
+  const ImmutablePoint(this.x, this.y);
+  const ImmutablePoint.origin() : x = 0, y = 0;
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".dart", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        constructors = [f for f in functions if f.is_constructor]
+        assert len(constructors) == 2
+        names = {c.name for c in constructors}
+        assert "ImmutablePoint" in names  # Default const
+        assert "origin" in names  # Named const
+
+
+class TestDartCallExtraction:
+    """Tests for Dart call extraction."""
+
+    def test_simple_function_call(self):
+        """Test simple function calls."""
+        code = '''
+void main() {
+  print('hello');
+  doSomething();
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".dart", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        main_func = next((fn for fn in functions if fn.name == "main"), None)
+        assert main_func is not None
+        assert "print" in main_func.calls
+        assert "doSomething" in main_func.calls
+
+    def test_method_calls(self):
+        """Test method calls with receivers."""
+        code = '''
+void main() {
+  list.add(1);
+  str.toLowerCase();
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".dart", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        main_func = next((fn for fn in functions if fn.name == "main"), None)
+        assert main_func is not None
+        assert "add" in main_func.calls
+        assert "toLowerCase" in main_func.calls
+
+        # Check receivers
+        add_call = next((c for c in main_func.call_details if c.name == "add"), None)
+        assert add_call is not None
+        assert add_call.receiver == "list"
+
+    def test_chained_calls(self):
+        """Test chained method calls."""
+        code = '''
+void main() {
+  list.map((e) => e * 2).where((e) => e > 5).toList();
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".dart", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        main_func = next((fn for fn in functions if fn.name == "main"), None)
+        assert main_func is not None
+        assert "map" in main_func.calls
+        assert "where" in main_func.calls
+        assert "toList" in main_func.calls
+
+    def test_cascade_calls(self):
+        """Test cascade notation calls."""
+        code = '''
+void main() {
+  builder
+    ..setWidth(100)
+    ..setHeight(200)
+    ..build();
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".dart", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        main_func = next((fn for fn in functions if fn.name == "main"), None)
+        assert main_func is not None
+        assert "setWidth" in main_func.calls
+        assert "setHeight" in main_func.calls
+        assert "build" in main_func.calls
+
+        # Check that cascade methods have the receiver
+        set_width = next((c for c in main_func.call_details if c.name == "setWidth"), None)
+        assert set_width is not None
+        assert set_width.receiver == "builder"
+
+    def test_constructor_calls(self):
+        """Test constructor invocations."""
+        code = '''
+void main() {
+  var p1 = Point(1, 2);
+  var p2 = Point.origin();
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".dart", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        main_func = next((fn for fn in functions if fn.name == "main"), None)
+        assert main_func is not None
+        assert "Point" in main_func.calls
+        assert "origin" in main_func.calls
+
+        # Check that Point is detected as constructor
+        from vibe_ragnar.parser.entities import CallType
+        point_call = next((c for c in main_func.call_details if c.name == "Point"), None)
+        assert point_call is not None
+        assert point_call.call_type == CallType.CONSTRUCTOR

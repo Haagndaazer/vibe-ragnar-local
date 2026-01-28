@@ -226,7 +226,15 @@ class TreeSitterParser:
                 calls, call_details = self._extract_calls(body_node, source, language)
 
             # Check if this is a constructor
-            is_constructor = self._is_constructor(func_name, class_name, language)
+            # For Dart, check node type directly since constructors have specific signature types
+            if language == "dart" and def_node.type in {
+                "constructor_signature",
+                "factory_constructor_signature",
+                "constant_constructor_signature",
+            }:
+                is_constructor = True
+            else:
+                is_constructor = self._is_constructor(func_name, class_name, language)
 
             # Extract access modifier and static/abstract flags
             access_modifier = self._extract_access_modifier(def_node, source, language)
@@ -412,6 +420,15 @@ class TreeSitterParser:
 
     def _find_function_name(self, node: Node, source: bytes, language: str) -> str | None:
         """Find the function name from a function definition node."""
+        # Dart constructor handling
+        if language == "dart" and node.type in {
+            "constructor_signature",
+            "factory_constructor_signature",
+            "constant_constructor_signature",
+        }:
+            name, _ = self._extract_dart_constructor_name(node, source)
+            return name
+
         name_types = {"identifier", "property_identifier", "field_identifier"}
         for child in node.children:
             if child.type in name_types:
@@ -426,6 +443,54 @@ class TreeSitterParser:
                             if sub2.type == "identifier":
                                 return self._node_text(sub2, source)
         return None
+
+    def _extract_dart_constructor_name(
+        self, node: Node, source: bytes
+    ) -> tuple[str | None, bool]:
+        """Extract constructor name from Dart constructor signature.
+
+        Args:
+            node: The constructor signature node
+            source: Source code bytes
+
+        Returns:
+            Tuple of (name, is_named_constructor)
+            - For default constructor: (ClassName, False)
+            - For named constructor: (constructorName, True)
+        """
+        children = node.children
+
+        if node.type == "constructor_signature":
+            # Default: [identifier, formal_parameter_list]
+            # Named: [identifier, ".", identifier, formal_parameter_list]
+            if len(children) >= 2 and children[1].type == ".":
+                # Named constructor - return the name after the dot
+                return self._node_text(children[2], source), True
+            # Default constructor - return the class name
+            if children and children[0].type == "identifier":
+                return self._node_text(children[0], source), False
+
+        elif node.type == "factory_constructor_signature":
+            # Factory: [factory, identifier, formal_parameter_list]
+            # Factory named: [factory, identifier, ".", identifier, formal_parameter_list]
+            if len(children) >= 3 and children[2].type == ".":
+                # Named factory constructor
+                return self._node_text(children[3], source), True
+            # Default factory constructor
+            if len(children) >= 2 and children[1].type == "identifier":
+                return self._node_text(children[1], source), False
+
+        elif node.type == "constant_constructor_signature":
+            # Const: [const_builtin, identifier, formal_parameter_list]
+            # Const named: [const_builtin, identifier, ".", identifier, formal_parameter_list]
+            if len(children) >= 3 and children[2].type == ".":
+                # Named const constructor
+                return self._node_text(children[3], source), True
+            # Default const constructor
+            if len(children) >= 2 and children[1].type == "identifier":
+                return self._node_text(children[1], source), False
+
+        return None, False
 
     def _find_class_name(self, node: Node, source: bytes, language: str) -> str | None:
         """Find the class name from a class definition node."""
@@ -467,6 +532,29 @@ class TreeSitterParser:
     def _find_body(self, node: Node, language: str) -> Node | None:
         """Find the body node of a function definition."""
         body_types = {"block", "statement_block", "compound_statement"}
+
+        # For Dart, the body is a sibling (function_body) not a child
+        # function_signature is followed by function_body at the same level
+        if language == "dart":
+            # First check for function_body sibling
+            sibling = node.next_sibling
+            while sibling:
+                if sibling.type == "function_body":
+                    # function_body contains block
+                    for child in sibling.children:
+                        if child.type in body_types:
+                            return child
+                    return sibling
+                sibling = sibling.next_sibling
+
+            # For constructors, check if there's a block sibling
+            sibling = node.next_sibling
+            while sibling:
+                if sibling.type in body_types:
+                    return sibling
+                sibling = sibling.next_sibling
+
+        # Standard path: look for body as a child
         for child in node.children:
             if child.type in body_types:
                 return child
@@ -771,6 +859,10 @@ class TreeSitterParser:
         Returns:
             Tuple of (simple call names list, detailed call info list)
         """
+        # Dart has a unique AST structure with selector chains, use specialized extraction
+        if language == "dart":
+            return self._extract_dart_calls(body_node, source)
+
         call_query = self._queries[language]["call"]
         call_captures = self._run_query(call_query, body_node)
 
@@ -842,6 +934,171 @@ class TreeSitterParser:
                 )
             )
 
+        return calls, call_details
+
+    def _extract_dart_calls(
+        self, body_node: Node, source: bytes
+    ) -> tuple[list[str], list[CallInfo]]:
+        """Extract function/method calls from Dart code.
+
+        Dart has a unique AST where calls are identifier + selector chains.
+        This requires walking the tree to properly associate receivers with methods.
+
+        Args:
+            body_node: The function body node to search
+            source: Source code bytes
+
+        Returns:
+            Tuple of (simple call names list, detailed call info list)
+        """
+        calls: list[str] = []
+        call_details: list[CallInfo] = []
+        seen: set[str] = set()
+
+        def process_selector_chain(node: Node) -> None:
+            """Process an expression with selector chain for calls."""
+            children = node.children
+            if not children:
+                return
+
+            receiver: str | None = None
+            current_method: str | None = None
+
+            # First child is usually the receiver/function identifier
+            if children[0].type in {"identifier", "type_identifier"}:
+                receiver = self._node_text(children[0], source)
+
+            # Process selector chain
+            for child in children[1:]:
+                if child.type == "selector":
+                    for selector_child in child.children:
+                        if selector_child.type == "unconditional_assignable_selector":
+                            # Method/property access: .method
+                            for sc in selector_child.children:
+                                if sc.type == "identifier":
+                                    current_method = self._node_text(sc, source)
+                        elif selector_child.type == "argument_part":
+                            # Invocation - this completes a call
+                            name = current_method or receiver
+                            if name and name not in seen:
+                                seen.add(name)
+                                calls.append(name)
+
+                                # Determine call type
+                                call_type = CallType.FUNCTION
+                                if current_method:
+                                    call_type = CallType.METHOD
+                                    if receiver and receiver[0].isupper():
+                                        call_type = CallType.STATIC
+                                elif receiver and receiver[0].isupper():
+                                    call_type = CallType.CONSTRUCTOR
+
+                                call_details.append(
+                                    CallInfo(
+                                        name=name,
+                                        call_type=call_type,
+                                        receiver=receiver if current_method else None,
+                                        is_chained=current_method is not None and receiver is not None,
+                                        line=node.start_point[0] + 1,
+                                    )
+                                )
+                            # For chained calls, the result becomes the new receiver
+                            receiver = name
+                            current_method = None
+
+                elif child.type == "cascade_section":
+                    # Handle cascade notation: ..method()
+                    process_cascade(child, receiver, node.start_point[0] + 1)
+
+        def process_cascade(cascade_node: Node, receiver: str | None, line: int) -> None:
+            """Process a cascade section for calls."""
+            for child in cascade_node.children:
+                if child.type == "cascade_selector":
+                    for sc in child.children:
+                        if sc.type == "identifier":
+                            method_name = self._node_text(sc, source)
+                            # Check if there's an argument_part sibling (it's a call)
+                            has_args = any(
+                                sibling.type == "argument_part"
+                                for sibling in cascade_node.children
+                            )
+                            if has_args and method_name and method_name not in seen:
+                                seen.add(method_name)
+                                calls.append(method_name)
+                                call_details.append(
+                                    CallInfo(
+                                        name=method_name,
+                                        call_type=CallType.METHOD,
+                                        receiver=receiver,
+                                        is_chained=True,
+                                        line=line,
+                                    )
+                                )
+
+        def walk(node: Node) -> None:
+            """Walk the AST and extract calls."""
+            # Look for expression patterns that might contain calls
+            if node.type in {"expression_statement", "return_statement", "yield_statement"}:
+                process_selector_chain(node)
+            elif node.type == "initialized_variable_definition":
+                # Dart: var x = Point(1, 2) or var x = obj.method()
+                # Structure: [inferred_type/type, identifier, =, identifier, selector...]
+                # Find the value part (after the =)
+                found_equals = False
+                value_children: list[Node] = []
+                for child in node.children:
+                    if child.type == "=":
+                        found_equals = True
+                    elif found_equals and child.type != ";":
+                        value_children.append(child)
+                if value_children:
+                    # Create a pseudo-node structure for processing
+                    # Check if first child is identifier (potential call target)
+                    if value_children[0].type in {"identifier", "type_identifier"}:
+                        receiver = self._node_text(value_children[0], source)
+                        current_method: str | None = None
+
+                        for child in value_children[1:]:
+                            if child.type == "selector":
+                                for selector_child in child.children:
+                                    if selector_child.type == "unconditional_assignable_selector":
+                                        for sc in selector_child.children:
+                                            if sc.type == "identifier":
+                                                current_method = self._node_text(sc, source)
+                                    elif selector_child.type == "argument_part":
+                                        name = current_method or receiver
+                                        if name and name not in seen:
+                                            seen.add(name)
+                                            calls.append(name)
+                                            call_type = CallType.FUNCTION
+                                            if current_method:
+                                                call_type = CallType.METHOD
+                                                if receiver and receiver[0].isupper():
+                                                    call_type = CallType.STATIC
+                                            elif receiver and receiver[0].isupper():
+                                                call_type = CallType.CONSTRUCTOR
+                                            call_details.append(
+                                                CallInfo(
+                                                    name=name,
+                                                    call_type=call_type,
+                                                    receiver=receiver if current_method else None,
+                                                    is_chained=current_method is not None,
+                                                    line=node.start_point[0] + 1,
+                                                )
+                                            )
+                                        receiver = name
+                                        current_method = None
+            elif node.type == "arguments":
+                # Handle calls inside function arguments
+                for child in node.children:
+                    if child.type not in {"(", ")", ","}:
+                        process_selector_chain(child)
+
+            # Recurse into children
+            for child in node.children:
+                walk(child)
+
+        walk(body_node)
         return calls, call_details
 
     def _find_call_receiver(self, method_node: Node, source: bytes) -> str | None:
