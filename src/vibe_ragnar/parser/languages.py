@@ -815,7 +815,6 @@ IGNORED_DIRECTORIES = frozenset({
     "wheels",
     "sdist",
     ".Python",
-    "lib",
     "lib64",
 
     # === JavaScript / TypeScript ===
@@ -905,17 +904,23 @@ IGNORED_DIRECTORIES = frozenset({
 })
 
 
-def should_ignore_path(path: Path) -> bool:
+def should_ignore_path(path: Path, include_dirs: frozenset[str] | None = None) -> bool:
     """Check if a path should be ignored during scanning.
 
     Args:
         path: Path to check
+        include_dirs: Set of directory names to force include even if in ignore list
 
     Returns:
         True if the path should be ignored
     """
+    include_dirs = include_dirs or frozenset()
+
     # Check if any part of the path is in the ignored set
     for part in path.parts:
+        # Skip ignored check if directory is in force-include list
+        if part in include_dirs:
+            continue
         if part in IGNORED_DIRECTORIES:
             return True
         # Also ignore hidden directories (except .github, etc.)

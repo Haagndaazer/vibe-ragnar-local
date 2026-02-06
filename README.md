@@ -116,6 +116,7 @@ All configuration is optional. Vibe RAGnar works out of the box with sensible de
 | `REPO_PATH` | No | Current directory | Repository path to index |
 | `REPO_NAME` | No | Directory name | Repository name for the index |
 | `PERSIST_DIR` | No | `.embeddings` | Local storage directory |
+| `INCLUDE_DIRS` | No | (none) | Directories to include even if normally ignored (comma-separated) |
 | `EMBEDDING_BACKEND` | No | `sentence-transformers` | Backend: `sentence-transformers` or `ollama` |
 | `EMBEDDING_MODEL` | No | `nomic-ai/nomic-embed-text-v1.5` | Model for sentence-transformers |
 | `EMBEDDING_DIMENSIONS` | No | `768` | Embedding vector dimensions |

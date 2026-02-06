@@ -1519,13 +1519,17 @@ class TreeSitterParser:
         return implements
 
     def parse_directory(
-        self, directory: Path, repo_root: Path | None = None
+        self,
+        directory: Path,
+        repo_root: Path | None = None,
+        include_dirs: list[str] | None = None,
     ) -> list[AnyEntity]:
         """Parse all supported files in a directory recursively.
 
         Args:
             directory: Directory to parse
             repo_root: Root of the repository (defaults to directory)
+            include_dirs: Directories to include even if normally ignored
 
         Returns:
             List of all extracted entities
@@ -1533,10 +1537,11 @@ class TreeSitterParser:
         if repo_root is None:
             repo_root = directory
 
+        include_set = frozenset(include_dirs) if include_dirs else None
         all_entities: list[AnyEntity] = []
 
         for file_path in directory.rglob("*"):
-            if file_path.is_file() and not should_ignore_path(file_path):
+            if file_path.is_file() and not should_ignore_path(file_path, include_set):
                 if self.supports_file(file_path):
                     try:
                         entities = self.parse_file(file_path, repo_root)

@@ -138,7 +138,9 @@ def register_service_tools(mcp) -> None:
         if target_path.is_file():
             entities = parser.parse_file(target_path, config.repo_path)
         else:
-            entities = parser.parse_directory(target_path, config.repo_path)
+            entities = parser.parse_directory(
+                target_path, config.repo_path, include_dirs=config.include_dirs
+            )
 
         # Build graph
         graph_builder.build_from_entities(entities)

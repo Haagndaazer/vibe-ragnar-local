@@ -73,6 +73,22 @@ class Settings(BaseSettings):
         description="Debounce delay for file watcher in seconds",
     )
 
+    # Directory filtering
+    include_dirs: list[str] = Field(
+        default_factory=list,
+        description="Directories to include even if normally ignored (comma-separated)",
+    )
+
+    @field_validator("include_dirs", mode="before")
+    @classmethod
+    def parse_include_dirs(cls, v: str | list[str]) -> list[str]:
+        """Parse comma-separated string into list."""
+        if isinstance(v, str):
+            if not v.strip():
+                return []
+            return [d.strip() for d in v.split(",") if d.strip()]
+        return v
+
     @field_validator("repo_path", mode="before")
     @classmethod
     def validate_repo_path(cls, v: str | Path) -> Path:

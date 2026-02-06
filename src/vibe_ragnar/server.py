@@ -77,6 +77,7 @@ def run_initial_indexing(
     embedding_sync: EmbeddingSync,
     repo_path: Path,
     context: dict[str, Any],
+    include_dirs: list[str] | None = None,
 ) -> None:
     """Run initial indexing in background thread.
 
@@ -87,13 +88,14 @@ def run_initial_indexing(
         embedding_sync: EmbeddingSync instance
         repo_path: Repository root path
         context: Server context dict to update indexing_complete flag
+        include_dirs: Directories to include even if normally ignored
     """
     try:
         logger.info("Starting background indexing...")
 
         # Phase 1: Parsing
         context["indexing_phase"] = "parsing"
-        entities = parser.parse_directory(repo_path, repo_path)
+        entities = parser.parse_directory(repo_path, repo_path, include_dirs=include_dirs)
         context["indexing_total_entities"] = len(entities)
         # Count embeddable entities (functions and classes only)
         embeddable = sum(1 for e in entities if e.entity_type in ("function", "class"))
@@ -183,7 +185,15 @@ async def lifespan(server: FastMCP):
     # Start background indexing
     indexing_thread = threading.Thread(
         target=run_initial_indexing,
-        args=(parser, graph_builder, graph_storage, embedding_sync, config.repo_path, context),
+        args=(
+            parser,
+            graph_builder,
+            graph_storage,
+            embedding_sync,
+            config.repo_path,
+            context,
+            config.include_dirs,
+        ),
         daemon=True,
     )
     indexing_thread.start()
