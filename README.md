@@ -57,6 +57,12 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
    uv sync
    ```
 
+3. **First-time setup** - Download the embedding model before first use:
+   ```bash
+   uv run python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('nomic-ai/nomic-embed-text-v1.5', trust_remote_code=True)"
+   ```
+   This downloads the model (~250MB) so the MCP server can start quickly.
+
 That's it! No API keys or external service configuration needed.
 
 ## Usage with Claude Code
@@ -73,7 +79,7 @@ claude mcp add vibe-ragnar \
 
 `$PWD` automatically expands to your current directory, so Vibe RAGnar will index the project you're in.
 
-> **Note:** After adding the MCP server, restart Claude Code to apply changes. The first run will download the embedding model (~250MB) and index your codebase. Use `get_index_status` to check indexing progress.
+> **Note:** After adding the MCP server, restart Claude Code to apply changes. Initial indexing runs in the background. Use `get_index_status` to check indexing progress.
 
 ## MCP Tools
 
