@@ -6,39 +6,30 @@
 ![MCP](https://img.shields.io/badge/MCP-Server-purple?style=flat)
 # Vibe RAGnar
 
-A lightweight MCP server for code indexing that combines graph analysis with semantic search through vector embeddings.
+A fully local MCP server for code indexing that combines graph analysis with semantic search. No external services or API keys required.
 
 ## Features
 
+- **100% Local**: All processing and storage happens on your machine - no API keys, no cloud services
 - **Graph Analysis**: Build and query code dependency graphs using NetworkX
-- **Semantic Search**: Find code using natural language through vector embeddings
+- **Semantic Search**: Find code using natural language through local vector embeddings
 - **Real-time Updates**: Automatic index updates when files change
-- **Multi-language Support**: Python, TypeScript, JavaScript, Go, Rust, Java, C, C++
-- **Single Process**: No Docker or external services needed (except MongoDB Atlas)
+- **Multi-language Support**: Python, TypeScript, JavaScript, Go, Rust, Java, C, C++, Dart
+- **Privacy First**: Your code never leaves your machine
 
-## External Services
+## How It Works
 
-> **💸 100% Free:** Although this project uses external services, they were specifically chosen because they offer generous free tiers. You can use Vibe RAGnar completely free of charge.
+Vibe RAGnar uses:
+- **ChromaDB** for local vector storage (stored in `.embeddings/` directory)
+- **sentence-transformers** for generating embeddings locally
+- **Tree-sitter** for parsing code across multiple languages
+- **NetworkX** for building and querying the code dependency graph
 
-### MongoDB Atlas
+### Embedding Model
 
-**URL:** https://www.mongodb.com/atlas
+By default, Vibe RAGnar uses [nomic-ai/nomic-embed-text-v1.5](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5) from Hugging Face. The model is downloaded automatically on first run (~250MB).
 
-MongoDB Atlas is used for vector storage and semantic search.
-
-- Create a **free M0 cluster** (512 MB storage)
-- 512 MB is enough for many indexed projects
-- No credit card required
-
-### Voyage AI
-
-**URL:** https://www.voyageai.com
-
-Voyage AI provides the `voyage-code-3` embedding model used for semantic code search.
-
-- **200 million free tokens** — more than enough for extensive use
-- ⚠️ **Credit card required** — without a linked card, rate limits are too restrictive for practical use
-- You won't be charged (free tier is huge), but the card removes rate limiting
+Alternatively, you can use **Ollama** as an embedding backend if you prefer to manage models separately.
 
 ## Installation
 
@@ -46,8 +37,6 @@ Voyage AI provides the `voyage-code-3` embedding model used for semantic code se
 
 - Python 3.11-3.13 (3.14+ not supported)
 - [uv](https://github.com/astral-sh/uv) package manager
-- [MongoDB Atlas](https://www.mongodb.com/atlas) account (free tier)
-- [Voyage AI](https://www.voyageai.com) API key (free tier, card required)
 
 #### Installing uv
 
@@ -68,11 +57,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
    uv sync
    ```
 
-3. Set up environment variables (optional, can also pass via `claude mcp add`):
-   ```bash
-   export MONGODB_URI="mongodb+srv://your-connection-string"
-   export VOYAGE_API_KEY="your-voyage-api-key"
-   ```
+That's it! No API keys or external service configuration needed.
 
 ## Usage with Claude Code
 
@@ -82,15 +67,13 @@ Navigate to your project directory and add Vibe RAGnar as an MCP server:
 cd /path/to/your-project
 
 claude mcp add vibe-ragnar \
-  --env MONGODB_URI="mongodb+srv://your-connection-string" \
-  --env VOYAGE_API_KEY="your-voyage-api-key" \
   --env REPO_PATH="$PWD" \
   -- uv run --directory /path/to/vibe-ragnar python -m vibe_ragnar.server
 ```
 
 `$PWD` automatically expands to your current directory, so Vibe RAGnar will index the project you're in.
 
-> **Note:** After adding the MCP server, restart Claude Code to apply changes. The server starts instantly - initial indexing runs in the background. Use `get_index_status` to check indexing progress.
+> **Note:** After adding the MCP server, restart Claude Code to apply changes. The first run will download the embedding model (~250MB) and index your codebase. Use `get_index_status` to check indexing progress.
 
 ## MCP Tools
 
@@ -110,17 +93,49 @@ claude mcp add vibe-ragnar \
 - `get_index_status` - Get indexing statistics
 - `reindex` - Force reindex the codebase
 
+## Storage
+
+Vibe RAGnar stores all data locally in a `.embeddings/` directory within your project:
+
+```
+your-project/
+├── .embeddings/
+│   ├── chromadb/      # Vector embeddings database
+│   └── graph.pickle   # Code dependency graph
+└── ... your code
+```
+
+Add `.embeddings/` to your `.gitignore` to avoid committing the index.
+
 ## Configuration
 
-| Environment Variable | Required | Description |
-|---------------------|----------|-------------|
-| `MONGODB_URI` | Yes | MongoDB Atlas connection string |
-| `VOYAGE_API_KEY` | Yes | Voyage AI API key |
-| `REPO_PATH` | No | Repository path (default: cwd) |
-| `REPO_NAME` | No | Repository name (default: directory name) |
-| `LOG_LEVEL` | No | Logging level (default: INFO) |
-| `EMBEDDING_MODEL` | No | Voyage AI model (default: voyage-code-3) |
-| `EMBEDDING_DIMENSIONS` | No | Embedding dimensions (default: 1024) |
+All configuration is optional. Vibe RAGnar works out of the box with sensible defaults.
+
+| Environment Variable | Required | Default | Description |
+|---------------------|----------|---------|-------------|
+| `REPO_PATH` | No | Current directory | Repository path to index |
+| `REPO_NAME` | No | Directory name | Repository name for the index |
+| `PERSIST_DIR` | No | `.embeddings` | Local storage directory |
+| `EMBEDDING_BACKEND` | No | `sentence-transformers` | Backend: `sentence-transformers` or `ollama` |
+| `EMBEDDING_MODEL` | No | `nomic-ai/nomic-embed-text-v1.5` | Model for sentence-transformers |
+| `EMBEDDING_DIMENSIONS` | No | `768` | Embedding vector dimensions |
+| `OLLAMA_BASE_URL` | No | `http://localhost:11434` | Ollama server URL (if using Ollama) |
+| `OLLAMA_MODEL` | No | `nomic-embed-text` | Ollama embedding model |
+| `LOG_LEVEL` | No | `INFO` | Logging level |
+
+### Using Ollama (Optional)
+
+If you prefer to use Ollama for embeddings:
+
+1. Install and start [Ollama](https://ollama.ai)
+2. Pull an embedding model: `ollama pull nomic-embed-text`
+3. Configure Vibe RAGnar:
+   ```bash
+   claude mcp add vibe-ragnar \
+     --env REPO_PATH="$PWD" \
+     --env EMBEDDING_BACKEND="ollama" \
+     -- uv run --directory /path/to/vibe-ragnar python -m vibe_ragnar.server
+   ```
 
 ## Agents (Optional)
 
