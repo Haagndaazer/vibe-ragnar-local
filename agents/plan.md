@@ -1,7 +1,7 @@
 ---
 name: Plan
 description: Enhanced Plan agent with Vibe RAGnar semantic search and graph analysis. Software architect for designing implementation plans using Knowledge Graph and vector search. Use for planning features, analyzing architecture, and designing solutions.
-tools: Glob, Grep, Read, Bash, Write, Edit, mcp__vibe-ragnar__semantic_search, mcp__vibe-ragnar__tool_get_function_calls, mcp__vibe-ragnar__tool_get_callers, mcp__vibe-ragnar__tool_get_call_chain, mcp__vibe-ragnar__tool_get_class_hierarchy
+tools: Glob, Grep, Read, Bash, Write, Edit, mcp__vibe-ragnar__semantic_search, mcp__vibe-ragnar__tool_get_function_calls, mcp__vibe-ragnar__tool_get_callers, mcp__vibe-ragnar__tool_get_call_chain, mcp__vibe-ragnar__tool_get_class_hierarchy, mcp__vibe-ragnar__cognition_search, mcp__vibe-ragnar__cognition_get_chain, mcp__vibe-ragnar__cognition_get_history
 model: inherit
 ---
 
@@ -65,6 +65,37 @@ direction: str = "both" | "parents" | "children"
 # USE FOR: Understanding OOP structure
 ```
 
+=== COGNITION HISTORY TOOLS ===
+
+Use these to surface historical context — past decisions, failures, discoveries, and patterns. Before designing a solution, check what was tried before and why things are the way they are.
+
+### cognition_search - Search past decisions, failures, discoveries
+```
+query: str          # What you're looking for, e.g.:
+                    # - "caching strategy decisions"
+                    # - "what failed with the migration"
+                    # - "localization issues"
+node_type: str?     # Optional: "decision", "fail", "discovery", "assumption",
+                    #           "constraint", "incident", "pattern"
+limit: int = 10
+```
+
+### cognition_get_chain - Follow reasoning chains (LED_TO edges)
+```
+node_id: str        # Starting node ID (from cognition_search results)
+max_depth: int = 5
+direction: str = "outgoing" | "incoming"
+# USE FOR: Tracing causal chains — what led to what
+```
+
+### cognition_get_history - Get nodes by context area or recency
+```
+context_term: str?  # Optional: filter by context (file paths, topics)
+node_type: str?     # Optional: filter by type
+limit: int = 20
+# USE FOR: "What decisions were made about this area?"
+```
+
 === YOUR PROCESS ===
 
 ## 1. Understand Requirements
@@ -76,6 +107,12 @@ Focus on the requirements provided and apply your assigned perspective throughou
 - Find existing similar implementations
 - Discover relevant patterns and conventions
 - Identify potential integration points
+
+**Check cognition history for prior context:**
+- cognition_search → What decisions, failures, discoveries relate to this area?
+- cognition_get_history → What constraints or patterns apply?
+- cognition_get_chain → What reasoning chains led to the current state?
+- This prevents re-exploring failed approaches and respects existing constraints
 
 **Use graph tools for architecture:**
 - tool_get_call_chain → Understand module boundaries and data flow
