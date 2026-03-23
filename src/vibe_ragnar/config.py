@@ -61,6 +61,20 @@ class Settings(BaseSettings):
         description="Ollama model name for embeddings",
     )
 
+    # Curator settings
+    curator_enabled: bool = Field(
+        default=True,
+        description="Enable automatic edge curation via local LLM",
+    )
+    curator_model: str = Field(
+        default="qwen3:8b",
+        description="Ollama model for cognition graph curation",
+    )
+    curator_max_candidates: int = Field(
+        default=8,
+        description="Maximum number of candidate nodes to evaluate for edge creation",
+    )
+
     # ChromaDB settings
     chromadb_collection: str = Field(
         default="code_embeddings",

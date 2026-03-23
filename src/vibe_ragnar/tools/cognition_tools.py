@@ -1,23 +1,34 @@
 """MCP tools for the Cognition History Graph."""
 
+import logging
+import threading
 from datetime import datetime, timezone
 from typing import Any
 
 from fastmcp import Context
 
 from ..cognition import (
-    CognitionEdge,
-    CognitionEdgeType,
     CognitionNode,
     CognitionNodeType,
     CognitionStorage,
     generate_node_id,
     get_history_for_context,
-    get_incident_resolution,
     get_reasoning_chain,
-    get_superseded_chain,
 )
+from ..cognition.curator import CognitionCurator
 from ..embeddings import ChromaDBStorage, EmbeddingGenerator
+
+logger = logging.getLogger(__name__)
+
+
+def _run_curator(curator: CognitionCurator, node: CognitionNode) -> None:
+    """Run the curator in a background thread. Failures are logged, never raised."""
+    try:
+        edges = curator.curate(node)
+        if edges:
+            logger.info(f"Curator created {len(edges)} edge(s) for node {node.id}")
+    except Exception as e:
+        logger.warning(f"Curator failed for node {node.id}: {e}")
 
 
 def _record_node(
@@ -29,7 +40,6 @@ def _record_node(
     author: str,
     severity: str | None = None,
     references: str | None = None,
-    led_from: str | None = None,
 ) -> dict[str, Any]:
     """Shared logic for cognition_record tool."""
     storage: CognitionStorage = ctx.request_context.lifespan_context["cognition_storage"]
@@ -74,23 +84,20 @@ def _record_node(
         metadata["references"] = ",".join(references_list)
     embedding_storage.upsert_embedding(node_id, embedding, metadata)
 
-    # Optionally create LED_TO edge from an existing node
-    edge_created = False
-    if led_from and storage.has_node(led_from):
-        edge = CognitionEdge(
-            from_id=led_from,
-            to_id=node_id,
-            edge_type=CognitionEdgeType.LED_TO,
-            timestamp=timestamp,
-        )
-        edge_created = storage.add_edge(edge)
+    # Spawn curator in background thread (edges are created asynchronously)
+    curator: CognitionCurator | None = ctx.request_context.lifespan_context.get("cognition_curator")
+    if curator is not None:
+        threading.Thread(
+            target=_run_curator,
+            args=(curator, node),
+            daemon=True,
+        ).start()
 
     return {
         "id": node_id,
         "type": node_type.value,
         "summary": summary,
         "timestamp": timestamp,
-        "edge_from": led_from if edge_created else None,
     }
 
 
@@ -111,13 +118,15 @@ def register_cognition_tools(mcp) -> None:
         author: str,
         severity: str | None = None,
         references: str | None = None,
-        led_from: str | None = None,
     ) -> dict[str, Any]:
         """Record a cognition node — a decision, failure, discovery, or other knowledge artifact.
 
         Use this to capture important context from conversations: what was decided,
         what failed, what was discovered, assumptions made, constraints identified,
         production incidents, or generalized patterns/lessons learned.
+
+        Edges to related existing nodes are created automatically by a curator LLM
+        in the background — you do not need to specify relationships manually.
 
         Args:
             node_type: One of: decision, fail, discovery, assumption, constraint, incident, pattern
@@ -127,7 +136,6 @@ def register_cognition_tools(mcp) -> None:
             author: Who is recording this
             severity: Optional priority (critical, high, normal, low)
             references: Optional external refs, comma-separated (e.g., "pr:97,issue:LL-298")
-            led_from: Optional existing node ID that led to this (creates a LED_TO edge)
 
         Returns:
             The created node with ID and timestamp
@@ -140,50 +148,8 @@ def register_cognition_tools(mcp) -> None:
 
         return _record_node(
             ctx, nt, summary, detail, context, author,
-            severity, references, led_from,
+            severity, references,
         )
-
-    @mcp.tool()
-    def cognition_add_edge(
-        ctx: Context,
-        from_id: str,
-        to_id: str,
-        edge_type: str,
-    ) -> dict[str, Any]:
-        """Create a typed edge between two existing cognition nodes.
-
-        Args:
-            from_id: Source node ID
-            to_id: Target node ID
-            edge_type: One of: led_to, supersedes, contradicts, relates_to, resolved_by
-
-        Returns:
-            Edge details or error
-        """
-        storage: CognitionStorage = ctx.request_context.lifespan_context["cognition_storage"]
-
-        try:
-            et = CognitionEdgeType(edge_type)
-        except ValueError:
-            valid = [e.value for e in CognitionEdgeType]
-            return {"error": f"Invalid edge type '{edge_type}'. Valid: {valid}"}
-
-        timestamp = datetime.now(timezone.utc).isoformat()
-        edge = CognitionEdge(
-            from_id=from_id,
-            to_id=to_id,
-            edge_type=et,
-            timestamp=timestamp,
-        )
-
-        if storage.add_edge(edge):
-            return {
-                "from_id": from_id,
-                "to_id": to_id,
-                "edge_type": edge_type,
-                "timestamp": timestamp,
-            }
-        return {"error": f"One or both nodes not found (from={from_id}, to={to_id})"}
 
     @mcp.tool()
     def cognition_search(
@@ -241,6 +207,28 @@ def register_cognition_tools(mcp) -> None:
             "results": formatted,
             "count": len(formatted),
         }
+
+    @mcp.tool()
+    def cognition_get_chain(
+        ctx: Context,
+        node_id: str,
+        max_depth: int = 5,
+        direction: str = "outgoing",
+    ) -> dict[str, Any]:
+        """Get the reasoning chain from/to a cognition node via LED_TO edges.
+
+        Follow the chain of causation: what led to what, or what was caused by what.
+
+        Args:
+            node_id: Starting node ID
+            max_depth: Maximum depth to traverse (default: 5)
+            direction: "outgoing" (what it led to) or "incoming" (what led to it)
+
+        Returns:
+            Nested structure showing the reasoning chain
+        """
+        storage: CognitionStorage = ctx.request_context.lifespan_context["cognition_storage"]
+        return get_reasoning_chain(storage, node_id, max_depth, direction)
 
     @mcp.tool()
     def cognition_get_history(

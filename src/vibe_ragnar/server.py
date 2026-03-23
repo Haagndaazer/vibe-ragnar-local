@@ -136,10 +136,15 @@ def _sync_cognition_embeddings(
     if not all_nodes:
         return
 
-    missing = []
-    for node in all_nodes:
-        if not embedding_storage.get_by_id(node["id"]):
-            missing.append(node)
+    # Get existing IDs from ChromaDB in one call
+    existing_ids = set()
+    try:
+        results = embedding_storage._collection.get(ids=[n["id"] for n in all_nodes])
+        existing_ids = set(results["ids"])
+    except Exception:
+        pass  # If collection is empty or IDs not found, treat all as missing
+
+    missing = [n for n in all_nodes if n["id"] not in existing_ids]
 
     if not missing:
         return
@@ -220,6 +225,21 @@ async def lifespan(server: FastMCP):
         cognition_storage, cognition_embedding_storage, embedding_generator
     )
 
+    # Initialize cognition curator
+    cognition_curator = None
+    if config.curator_enabled:
+        from .cognition.curator import CognitionCurator
+
+        cognition_curator = CognitionCurator(
+            storage=cognition_storage,
+            embedding_storage=cognition_embedding_storage,
+            embedding_generator=embedding_generator,
+            ollama_base_url=config.ollama_base_url,
+            model=config.curator_model,
+            max_candidates=config.curator_max_candidates,
+        )
+        logger.info(f"Cognition curator initialized (model: {config.curator_model})")
+
     # Build context for tools (before indexing so MCP handshake completes quickly)
     context: dict[str, Any] = {
         "config": config,
@@ -231,6 +251,7 @@ async def lifespan(server: FastMCP):
         "embedding_sync": embedding_sync,
         "cognition_storage": cognition_storage,
         "cognition_embedding_storage": cognition_embedding_storage,
+        "cognition_curator": cognition_curator,
         "watcher": None,  # Will be set after watcher starts
         "watcher_active": False,
         "indexing_complete": False,
