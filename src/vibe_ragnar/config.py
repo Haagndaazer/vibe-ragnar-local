@@ -125,6 +125,16 @@ class Settings(BaseSettings):
         """Get the graph pickle storage path."""
         return self.repo_path / self.persist_dir / "graph.pickle"
 
+    @property
+    def cognition_dir(self) -> Path:
+        """Get the cognition graph storage directory (Git-committed)."""
+        return self.repo_path / ".cognition"
+
+    @property
+    def cognition_chromadb_path(self) -> Path:
+        """Get the cognition ChromaDB storage path (gitignored, regenerable)."""
+        return self.repo_path / self.persist_dir / "cognition_chromadb"
+
 
 def setup_logging(level: str) -> None:
     """Configure logging for the application."""

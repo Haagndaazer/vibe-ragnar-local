@@ -8,6 +8,7 @@ from typing import Any
 
 from fastmcp import FastMCP
 
+from .cognition import CognitionStorage
 from .config import Settings, setup_logging
 from .embeddings import ChromaDBStorage, EmbeddingGenerator, EmbeddingSync
 from .graph import GraphBuilder, GraphStorage
@@ -121,6 +122,48 @@ def run_initial_indexing(
         context["indexing_error"] = str(e)
 
 
+def _sync_cognition_embeddings(
+    cognition_storage: CognitionStorage,
+    embedding_storage: ChromaDBStorage,
+    generator: EmbeddingGenerator,
+) -> None:
+    """Sync cognition nodes from JSONL into ChromaDB if missing.
+
+    This handles the case where a teammate pulled new JSONL entries via Git
+    but the local ChromaDB doesn't have their embeddings yet.
+    """
+    all_nodes = cognition_storage.get_all_nodes()
+    if not all_nodes:
+        return
+
+    missing = []
+    for node in all_nodes:
+        if not embedding_storage.get_by_id(node["id"]):
+            missing.append(node)
+
+    if not missing:
+        return
+
+    logger.info(f"Syncing {len(missing)} cognition nodes to ChromaDB...")
+    for node in missing:
+        embed_text = f"{node.get('type', '')}: {node.get('summary', '')}\n{node.get('detail', '')}"
+        embedding = generator.generate_query_embedding(embed_text)
+        metadata = {
+            "entity_type": node.get("type", ""),
+            "summary": node.get("summary", ""),
+            "author": node.get("author", ""),
+            "timestamp": node.get("timestamp", ""),
+            "context": ",".join(node.get("context", [])),
+        }
+        if node.get("severity"):
+            metadata["severity"] = node["severity"]
+        if node.get("references"):
+            metadata["references"] = ",".join(node["references"])
+        embedding_storage.upsert_embedding(node["id"], embedding, metadata)
+
+    logger.info(f"Cognition embedding sync complete: {len(missing)} nodes added")
+
+
 @asynccontextmanager
 async def lifespan(server: FastMCP):
     """Manage server lifecycle - initialize and cleanup resources."""
@@ -164,6 +207,19 @@ async def lifespan(server: FastMCP):
         repo_name=config.effective_repo_name,
     )
 
+    # Initialize cognition graph
+    logger.info(f"Initializing cognition graph at {config.cognition_dir}...")
+    cognition_storage = CognitionStorage(config.cognition_dir)
+    cognition_embedding_storage = ChromaDBStorage(
+        persist_directory=config.cognition_chromadb_path,
+        collection_name="cognition_embeddings",
+    )
+
+    # Sync cognition embeddings from JSONL (handles teammates' Git-pulled entries)
+    _sync_cognition_embeddings(
+        cognition_storage, cognition_embedding_storage, embedding_generator
+    )
+
     # Build context for tools (before indexing so MCP handshake completes quickly)
     context: dict[str, Any] = {
         "config": config,
@@ -173,6 +229,8 @@ async def lifespan(server: FastMCP):
         "embedding_storage": embedding_storage,
         "embedding_generator": embedding_generator,
         "embedding_sync": embedding_sync,
+        "cognition_storage": cognition_storage,
+        "cognition_embedding_storage": cognition_embedding_storage,
         "watcher": None,  # Will be set after watcher starts
         "watcher_active": False,
         "indexing_complete": False,
@@ -228,6 +286,7 @@ async def lifespan(server: FastMCP):
     watcher.stop()
     graph_storage.save()  # Save graph on shutdown
     embedding_storage.close()
+    cognition_embedding_storage.close()
     logger.info("Shutdown complete")
 
 
