@@ -46,6 +46,8 @@ packages = ["src/vibe_ragnar"]
 
 [project.scripts]
 vibe-ragnar = "vibe_ragnar.server:main"
+vibe-ragnar-prime = "vibe_ragnar.cognition.prime:main"
+vibe-ragnar-backfill = "vibe_ragnar.cognition.backfill:main"
 
 [dependency-groups]
 dev = [
