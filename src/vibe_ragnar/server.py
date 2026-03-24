@@ -110,9 +110,12 @@ def run_initial_indexing(
         logger.info("Graph built and saved successfully")
 
         # Phase 3: Syncing embeddings
-        context["indexing_phase"] = "syncing_embeddings"
-        sync_result = embedding_sync.sync_entities(entities)
-        logger.info(f"Embedding sync: {sync_result}")
+        try:
+            context["indexing_phase"] = "syncing_embeddings"
+            sync_result = embedding_sync.sync_entities(entities)
+            logger.info(f"Embedding sync: {sync_result}")
+        except Exception as e:
+            logger.error(f"Code embedding sync failed: {e}")
 
         context["indexing_phase"] = "complete"
         context["indexing_complete"] = True
