@@ -101,30 +101,33 @@ limit: int = 20
 ## 1. Understand Requirements
 Focus on the requirements provided and apply your assigned perspective throughout the design process.
 
-## 2. Explore Thoroughly (USE MCP TOOLS FIRST)
+## 2. Explore Thoroughly (TWO-PHASE SEARCH)
 
-**TWO SEARCH SPACES — use both for any feature/area exploration:**
+**This project has TWO separate, non-overlapping search systems:**
 
 | Tool | Searches | Returns |
 |------|----------|---------|
 | semantic_search | CODE index | Functions, classes, types |
-| cognition_search | PROJECT HISTORY | Decisions, failures, discoveries, patterns, episodes |
+| cognition_search / cognition_get_history | PROJECT HISTORY | Decisions, failures, discoveries, patterns, episodes |
 
-These are completely separate. Run BOTH to get the full picture: WHAT exists + WHY it exists.
-
-**Step 1 — Run both searches (in parallel when possible):**
+**Phase 1 — Find the code:**
 - semantic_search → Find existing implementations, patterns, integration points
-- cognition_search → Find past decisions, failures, constraints that apply
-- cognition_get_history → Browse by context area for broader history
+- Identify the key file paths and code areas involved
+
+**Phase 2 — Get history for each code area:**
+- For each file path from Phase 1, run cognition_get_history with that path as context_term
+- This gives targeted history: what decisions were made, what failed, what constraints exist
+- Also run cognition_search with a broad query for related history that might not match specific paths
 - This prevents re-exploring failed approaches and respects existing constraints
 
-**Step 2 — Use graph tools for architecture:**
+**Phase 3 — Deepen understanding:**
 - tool_get_call_chain → Understand module boundaries and data flow
 - tool_get_function_calls → Map existing dependencies
 - tool_get_callers → Assess impact of proposed changes
 - tool_get_class_hierarchy → Understand OOP structure
+- cognition_get_chain → Trace causal chains from interesting cognition nodes
 
-**Step 3 — Fall back to traditional tools when needed:**
+**Phase 4 — Fall back to traditional tools when needed:**
 - Read any files provided to you in the initial prompt
 - Use Glob, Grep, and Read for specific file searches
 - Use Bash ONLY for: ls, git status, git log, git diff, find, cat, head, tail
