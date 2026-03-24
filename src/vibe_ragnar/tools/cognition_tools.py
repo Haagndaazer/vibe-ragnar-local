@@ -113,17 +113,43 @@ def register_cognition_tools(mcp) -> None:
         Edges to related existing nodes are created automatically by a curator LLM
         in the background — you do not need to specify relationships manually.
 
-        For entities (decision, fail, discovery, etc.): keep summary under 250 chars
-        and detail brief (1-3 sentences). For episodes: detail can be the full narrative.
+        NODE TYPES:
+        - decision: A choice between alternatives. Include what was chosen AND rejected.
+        - fail: Something that didn't work — a build, test, approach, or assumption.
+        - discovery: A non-obvious finding about the codebase, library, API, or platform.
+        - assumption: Something being assumed true without full verification.
+        - constraint: A hard limitation, scoping exclusion, or defensive rule.
+        - incident: A production problem that affected users.
+        - pattern: A reusable approach, convention, or anti-pattern.
+        - episode: Full narrative of completed work (Linear task, feature, debugging session).
+          Create when a body of work is done — the episode captures the full story.
+
+        ENTITY NODES (decision, fail, discovery, assumption, constraint, incident, pattern):
+        - summary: MAX 250 chars. Write like a commit message — scannable at a glance.
+          Good: "Double-filter bug: query filters by language after opening language-scoped box"
+          Bad: "Found a bug in the data source that was causing data to be invisible"
+        - detail: 1-3 sentences of rationale. NOT the full story — that goes in an episode.
+
+        EPISODE NODES:
+        - summary: Brief title of the work (e.g., "LL-298: Data wipe investigation and fix")
+        - detail: Full narrative — everything that happened. Verbose is fine for episodes.
+
+        IMPORTANT:
+        - Always include references (issue numbers, PR numbers, commit hashes) so the
+          curator can link related nodes. Format: "issue:LL-298,pr:97,commit:abc123"
+        - Use both file paths AND topical terms in context for better discovery.
+        - author should be the current git user name.
 
         Args:
             node_type: One of: decision, fail, discovery, assumption, constraint, incident, pattern, episode
-            summary: Short description (max 250 chars for entities)
-            detail: Brief rationale for entities, or full narrative for episodes
-            context: Related code areas, file paths, or topics (comma-separated)
-            author: Who is recording this
-            severity: Optional priority (critical, high, normal, low)
-            references: Optional external refs, comma-separated (e.g., "pr:97,issue:LL-298")
+            summary: Short description (max 250 chars for entities, brief title for episodes)
+            detail: Brief rationale for entities (1-3 sentences), or full narrative for episodes
+            context: Related code areas, file paths, AND topical terms (comma-separated).
+                     Example: "flashcard_local_datasource.dart, HiveService, data migration, LL-298"
+            author: The current git user name (e.g., "Colton Dyck")
+            severity: Optional priority — critical, high, normal, low
+            references: Optional external refs, comma-separated. Include issue/PR/commit refs
+                        so the curator can link related nodes. Example: "issue:LL-298,pr:97"
 
         Returns:
             The created node with ID and timestamp
