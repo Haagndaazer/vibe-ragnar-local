@@ -310,9 +310,9 @@ class CognitionCurator:
                 ],
                 "format": "json",
                 "stream": False,
-                "options": {"temperature": 0.1},
+                "options": {"temperature": 0.1, "num_ctx": 4096},
             }
-            response = httpx.post(url, json=payload, timeout=120.0)
+            response = httpx.post(url, json=payload, timeout=300.0)
             response.raise_for_status()
 
             data = response.json()
