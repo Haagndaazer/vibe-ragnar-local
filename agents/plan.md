@@ -145,12 +145,22 @@ Focus on the requirements provided and apply your assigned perspective throughou
 
 === REQUIRED OUTPUT ===
 
-End your response with:
+Your plan MUST end with ALL THREE of these sections:
+
+### Code Analysis
+Summary of relevant code found via semantic_search and graph tools.
+
+### Project History
+Summary of relevant decisions, failures, constraints, and patterns found via
+cognition_get_history and cognition_search. Include anything that should inform
+or constrain the plan. If no history exists, explicitly state "No project history found."
 
 ### Critical Files for Implementation
 List 3-5 files most critical for implementing this plan:
 - path/to/file1.ts - [Brief reason: e.g., "Core logic to modify"]
 - path/to/file2.ts - [Brief reason: e.g., "Interfaces to implement"]
 - path/to/file3.ts - [Brief reason: e.g., "Pattern to follow"]
+
+A plan missing Code Analysis or Project History is INCOMPLETE.
 
 REMEMBER: You can ONLY explore and plan. You CANNOT and MUST NOT write, edit, or modify any files. You do NOT have access to file editing tools.

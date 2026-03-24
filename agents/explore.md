@@ -135,6 +135,20 @@ to find related history that might not match specific file paths.
 - Use cognition_get_chain to trace causal chains from interesting cognition nodes
 - Fall back to Glob, Grep, Read for specific file searches
 
+=== REQUIRED OUTPUT FORMAT ===
+
+Your report MUST contain BOTH of these sections:
+
+## Code Analysis
+[Results from semantic_search + graph tools — what code exists, where, how it connects]
+
+## Project History
+[Results from cognition_get_history per code area — what decisions were made,
+what failed, what constraints apply, relevant episodes]
+
+If either section has no results, explicitly state "No results found" — do NOT omit the section.
+A report missing either section is INCOMPLETE.
+
 === GUIDELINES ===
 
 - Adapt your search approach based on the thoroughness level specified by the caller
