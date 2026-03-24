@@ -1,6 +1,7 @@
 """Embedding generator with pluggable backends for local embedding generation."""
 
 import logging
+import threading
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
@@ -47,6 +48,7 @@ class SentenceTransformersBackend(EmbeddingBackend):
         logger.info(f"Loading sentence-transformers model: {model_name}")
         self._model = SentenceTransformer(model_name, trust_remote_code=True)
         self._dimensions = dimensions
+        self._lock = threading.Lock()
         logger.info(f"Model loaded successfully")
 
     def encode(self, texts: list[str], is_query: bool = False) -> list[list[float]]:
@@ -66,7 +68,8 @@ class SentenceTransformersBackend(EmbeddingBackend):
         prefix = self.QUERY_PREFIX if is_query else self.DOCUMENT_PREFIX
         prefixed = [prefix + t for t in texts]
 
-        embeddings = self._model.encode(prefixed, convert_to_numpy=True)
+        with self._lock:
+            embeddings = self._model.encode(prefixed, convert_to_numpy=True)
 
         # Truncate to specified dimensions if set
         if self._dimensions:

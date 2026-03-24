@@ -117,6 +117,28 @@ def run_initial_indexing(
         context["indexing_phase"] = "complete"
         context["indexing_complete"] = True
         logger.info("Background indexing completed successfully")
+
+        # Phase 4: Cognition graph sync + curation
+        # Runs after code indexing to avoid concurrent embedding model access
+        cognition_storage = context.get("cognition_storage")
+        cognition_embedding_storage = context.get("cognition_embedding_storage")
+        cognition_curator = context.get("cognition_curator")
+        embedding_generator = context.get("embedding_generator")
+
+        if cognition_storage and cognition_embedding_storage and embedding_generator:
+            logger.info("Syncing cognition embeddings...")
+            _sync_cognition_embeddings(
+                cognition_storage, cognition_embedding_storage, embedding_generator
+            )
+
+        if cognition_curator is not None:
+            if cognition_curator.ensure_model():
+                count = cognition_curator.curate_uncurated_nodes()
+                if count:
+                    logger.info(f"Curator: enqueued {count} uncurated node(s)")
+            else:
+                logger.warning("Curator model not available — skipping startup curation")
+
     except Exception as e:
         logger.error(f"Background indexing failed: {e}")
         context["indexing_error"] = str(e)
@@ -147,6 +169,7 @@ def _sync_cognition_embeddings(
     missing = [n for n in all_nodes if n["id"] not in existing_ids]
 
     if not missing:
+        logger.info("Cognition embeddings: all nodes already synced")
         return
 
     logger.info(f"Syncing {len(missing)} cognition nodes to ChromaDB...")
@@ -234,24 +257,6 @@ async def lifespan(server: FastMCP):
             max_candidates=config.curator_max_candidates,
         )
         logger.info(f"Cognition curator initialized (model: {config.curator_model})")
-
-    # Background: sync embeddings, ensure model, curate uncurated nodes
-    def _cognition_startup() -> None:
-        try:
-            _sync_cognition_embeddings(
-                cognition_storage, cognition_embedding_storage, embedding_generator
-            )
-            if cognition_curator is not None:
-                if not cognition_curator.ensure_model():
-                    logger.warning("Curator model not available — skipping startup curation")
-                    return
-                count = cognition_curator.curate_uncurated_nodes()
-                if count:
-                    logger.info(f"Curator startup: curated {count} previously uncurated node(s)")
-        except Exception as e:
-            logger.warning(f"Cognition startup failed: {e}")
-
-    threading.Thread(target=_cognition_startup, daemon=True).start()
 
     # Build context for tools (before indexing so MCP handshake completes quickly)
     context: dict[str, Any] = {

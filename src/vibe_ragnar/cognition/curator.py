@@ -2,6 +2,8 @@
 
 import json
 import logging
+import queue
+import threading
 from datetime import datetime, timezone
 from typing import Any
 
@@ -54,7 +56,11 @@ MIN_SIMILARITY_SCORE = 0.3
 
 
 class CognitionCurator:
-    """Analyzes new cognition nodes and creates edges to existing related nodes via local LLM."""
+    """Analyzes new cognition nodes and creates edges to existing related nodes via local LLM.
+
+    Uses a single worker thread with a queue to serialize all curation work,
+    preventing concurrent Ollama calls and embedding model access.
+    """
 
     def __init__(
         self,
@@ -72,8 +78,19 @@ class CognitionCurator:
         self._model = model
         self._max_candidates = max_candidates
 
+        self._queue: queue.Queue[CognitionNode | None] = queue.Queue()
+        self._ready = threading.Event()
+        self._worker = threading.Thread(target=self._worker_loop, daemon=True)
+        self._worker.start()
+
+    def enqueue(self, node: CognitionNode) -> None:
+        """Add a node to the curation queue. Non-blocking."""
+        self._queue.put(node)
+
     def ensure_model(self) -> bool:
         """Ensure the curator model is available in Ollama, pulling if needed.
+
+        Sets the readiness gate on success so the worker thread can begin processing.
 
         Returns:
             True if the model is available (or was pulled), False on failure
@@ -93,6 +110,7 @@ class CognitionCurator:
             base_name = self._model.split(":")[0]
             if any(self._model in n or base_name in n for n in model_names):
                 logger.info(f"Curator model '{self._model}' is available")
+                self._ready.set()
                 return True
 
             # Pull the model
@@ -104,22 +122,23 @@ class CognitionCurator:
             )
             pull_resp.raise_for_status()
             logger.info(f"Curator model '{self._model}' pulled successfully")
+            self._ready.set()
             return True
         except Exception as e:
             logger.warning(f"Failed to ensure curator model: {e}")
             return False
 
     def curate_uncurated_nodes(self) -> int:
-        """Find nodes with no edges and curate them.
+        """Find nodes with no edges and enqueue them for curation.
 
         Returns:
-            Number of nodes that were curated
+            Number of nodes enqueued
         """
         all_nodes = self._storage.get_all_nodes()
         if not all_nodes:
             return 0
 
-        curated_count = 0
+        enqueued = 0
         for node_data in all_nodes:
             node_id = node_data["id"]
             # Skip if this node already has any edges (incoming or outgoing)
@@ -127,7 +146,6 @@ class CognitionCurator:
                     self._storage.get_predecessors(node_id)):
                 continue
 
-            # Reconstruct CognitionNode from stored data
             try:
                 node = CognitionNode(
                     id=node_id,
@@ -140,13 +158,38 @@ class CognitionCurator:
                     timestamp=node_data.get("timestamp", ""),
                     author=node_data.get("author", ""),
                 )
+                self.enqueue(node)
+                enqueued += 1
+            except Exception as e:
+                logger.warning(f"Failed to enqueue node {node_id}: {e}")
+
+        if enqueued:
+            logger.info(f"Enqueued {enqueued} uncurated node(s) for curation")
+        return enqueued
+
+    def _worker_loop(self) -> None:
+        """Process nodes from the queue one at a time."""
+        while True:
+            node = None
+            try:
+                node = self._queue.get()
+                if node is None:
+                    break  # Shutdown sentinel
+                self._ready.wait()  # Block until ensure_model has succeeded
+                logger.info(
+                    f"Curating node {node.id} "
+                    f"({node.type.value}: {node.summary[:60]})"
+                )
                 edges = self.curate(node)
                 if edges:
-                    curated_count += 1
+                    logger.info(f"Curator created {len(edges)} edge(s) for node {node.id}")
+                else:
+                    logger.info(f"Curator: no edges created for node {node.id}")
             except Exception as e:
-                logger.warning(f"Failed to curate node {node_id}: {e}")
-
-        return curated_count
+                node_id = node.id if node else "unknown"
+                logger.warning(f"Curator failed for node {node_id}: {e}")
+            finally:
+                self._queue.task_done()
 
     def curate(self, node: CognitionNode) -> list[CognitionEdge]:
         """Analyze a new node and create edges to related existing nodes.

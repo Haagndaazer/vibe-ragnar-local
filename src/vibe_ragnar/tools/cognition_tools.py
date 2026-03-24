@@ -1,7 +1,6 @@
 """MCP tools for the Cognition History Graph."""
 
 import logging
-import threading
 from datetime import datetime, timezone
 from typing import Any
 
@@ -19,16 +18,6 @@ from ..cognition.curator import CognitionCurator
 from ..embeddings import ChromaDBStorage, EmbeddingGenerator
 
 logger = logging.getLogger(__name__)
-
-
-def _run_curator(curator: CognitionCurator, node: CognitionNode) -> None:
-    """Run the curator in a background thread. Failures are logged, never raised."""
-    try:
-        edges = curator.curate(node)
-        if edges:
-            logger.info(f"Curator created {len(edges)} edge(s) for node {node.id}")
-    except Exception as e:
-        logger.warning(f"Curator failed for node {node.id}: {e}")
 
 
 def _record_node(
@@ -84,14 +73,10 @@ def _record_node(
         metadata["references"] = ",".join(references_list)
     embedding_storage.upsert_embedding(node_id, embedding, metadata)
 
-    # Spawn curator in background thread (edges are created asynchronously)
+    # Enqueue for curator (edges are created asynchronously by the worker thread)
     curator: CognitionCurator | None = ctx.request_context.lifespan_context.get("cognition_curator")
     if curator is not None:
-        threading.Thread(
-            target=_run_curator,
-            args=(curator, node),
-            daemon=True,
-        ).start()
+        curator.enqueue(node)
 
     return {
         "id": node_id,
