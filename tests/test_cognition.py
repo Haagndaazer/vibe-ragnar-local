@@ -36,9 +36,10 @@ class TestModels:
         assert CognitionNodeType.EPISODE.value == "episode"
 
     def test_edge_types(self):
-        """All 6 edge types exist."""
-        assert len(CognitionEdgeType) == 6
+        """All 7 edge types exist."""
+        assert len(CognitionEdgeType) == 7
         assert CognitionEdgeType.PART_OF.value == "part_of"
+        assert CognitionEdgeType.DUPLICATE_OF.value == "duplicate_of"
         assert CognitionEdgeType.LED_TO.value == "led_to"
         assert CognitionEdgeType.SUPERSEDES.value == "supersedes"
         assert CognitionEdgeType.CONTRADICTS.value == "contradicts"
@@ -168,6 +169,57 @@ class TestCognitionStorage:
     def test_update_nonexistent_node(self, storage):
         """Test that updating a missing node returns False."""
         assert not storage.update_node("nonexistent", detail="nope")
+
+    def test_remove_node(self, storage):
+        """Test removing a node and its edges."""
+        storage.add_node(self._make_node("n1"))
+        storage.add_node(self._make_node("n2"))
+        storage.add_edge(CognitionEdge(
+            from_id="n1", to_id="n2",
+            edge_type=CognitionEdgeType.LED_TO,
+            timestamp="2026-03-15T10:00:00Z",
+        ))
+
+        assert storage.remove_node("n1")
+        assert not storage.has_node("n1")
+        assert storage.get_successors("n1") == []
+        assert storage.get_predecessors("n2") == []  # Edge removed with node
+
+    def test_remove_nonexistent_node(self, storage):
+        """Test that removing a missing node returns False."""
+        assert not storage.remove_node("nonexistent")
+
+    def test_redirect_edges(self, storage):
+        """Test redirecting edges from one node to another."""
+        storage.add_node(self._make_node("old"))
+        storage.add_node(self._make_node("new"))
+        storage.add_node(self._make_node("other"))
+
+        # old -> other (outgoing)
+        storage.add_edge(CognitionEdge(
+            from_id="old", to_id="other",
+            edge_type=CognitionEdgeType.LED_TO,
+            timestamp="2026-03-15T10:00:00Z",
+        ))
+        # other -> old (incoming)
+        storage.add_edge(CognitionEdge(
+            from_id="other", to_id="old",
+            edge_type=CognitionEdgeType.RESOLVED_BY,
+            timestamp="2026-03-15T10:01:00Z",
+        ))
+
+        redirected = storage.redirect_edges("old", "new")
+        assert redirected == 2
+
+        # new -> other should exist
+        successors = storage.get_successors("new", CognitionEdgeType.LED_TO)
+        assert len(successors) == 1
+        assert successors[0][0] == "other"
+
+        # other -> new should exist
+        preds = storage.get_predecessors("new", CognitionEdgeType.RESOLVED_BY)
+        assert len(preds) == 1
+        assert preds[0][0] == "other"
 
     def test_get_all_nodes(self, storage):
         """Test getting all nodes."""

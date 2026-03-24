@@ -107,6 +107,61 @@ class CognitionStorage:
         self._append_journal("update_node", data)
         return True
 
+    def remove_node(self, node_id: str) -> bool:
+        """Remove a node and all its edges from the graph.
+
+        Args:
+            node_id: ID of the node to remove
+
+        Returns:
+            True if the node existed and was removed
+        """
+        if node_id not in self._graph:
+            return False
+
+        self._graph.remove_node(node_id)
+        self._append_journal("remove_node", {"id": node_id})
+        return True
+
+    def redirect_edges(self, old_node_id: str, new_node_id: str) -> int:
+        """Redirect all edges from/to old_node_id to point to/from new_node_id.
+
+        Args:
+            old_node_id: The node being replaced
+            new_node_id: The node that takes over
+
+        Returns:
+            Number of edges redirected
+        """
+        if old_node_id not in self._graph or new_node_id not in self._graph:
+            return 0
+
+        redirected = 0
+
+        # Redirect outgoing edges
+        for _, target_id, edge_data in list(self._graph.out_edges(old_node_id, data=True)):
+            if target_id != new_node_id:  # Avoid self-loops
+                self._graph.add_edge(new_node_id, target_id, **edge_data)
+                self._append_journal("add_edge", {
+                    "from_id": new_node_id, "to_id": target_id,
+                    "edge_type": edge_data.get("type", ""),
+                    "timestamp": edge_data.get("timestamp", ""),
+                })
+                redirected += 1
+
+        # Redirect incoming edges
+        for source_id, _, edge_data in list(self._graph.in_edges(old_node_id, data=True)):
+            if source_id != new_node_id:  # Avoid self-loops
+                self._graph.add_edge(source_id, new_node_id, **edge_data)
+                self._append_journal("add_edge", {
+                    "from_id": source_id, "to_id": new_node_id,
+                    "edge_type": edge_data.get("type", ""),
+                    "timestamp": edge_data.get("timestamp", ""),
+                })
+                redirected += 1
+
+        return redirected
+
     # ── Read operations ───────────────────────────────────────────────
 
     def get_node(self, node_id: str) -> dict[str, Any] | None:
@@ -304,6 +359,10 @@ class CognitionStorage:
                     type=data["edge_type"],
                     timestamp=data.get("timestamp", ""),
                 )
+        elif action == "remove_node":
+            node_id = data["id"]
+            if node_id in self._graph:
+                self._graph.remove_node(node_id)
         elif action == "update_node":
             node_id = data.pop("id")
             if node_id in self._graph:

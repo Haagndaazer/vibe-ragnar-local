@@ -29,6 +29,7 @@ class CognitionEdgeType(str, Enum):
     RELATES_TO = "relates_to"
     RESOLVED_BY = "resolved_by"
     PART_OF = "part_of"
+    DUPLICATE_OF = "duplicate_of"
 
 
 class CognitionNode(BaseModel):

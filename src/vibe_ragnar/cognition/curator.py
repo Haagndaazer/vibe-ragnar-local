@@ -30,6 +30,9 @@ Available edge types:
 issue/PR reference (e.g., both reference "issue:LL-298"). If the new node is an entity and \
 the existing node is an episode, direction is "from_new". If the new node is an episode and \
 the existing node is an entity, direction is "to_new".
+- duplicate_of: The new node is semantically identical to this existing node — same fact, \
+same meaning, same type. Use ONLY when nodes genuinely represent the SAME thing, not merely \
+related topics. The new node will be merged into the existing one. Direction is always "from_new".
 
 Rules:
 - Only suggest edges where there is a genuine, meaningful relationship.
@@ -46,7 +49,7 @@ Respond with JSON only:
   "edges": [
     {
       "candidate_id": "<id of the existing node>",
-      "edge_type": "<led_to|supersedes|contradicts|relates_to|resolved_by|part_of>",
+      "edge_type": "<led_to|supersedes|contradicts|relates_to|resolved_by|part_of|duplicate_of>",
       "direction": "<from_new|to_new>",
       "reason": "<brief explanation>"
     }
@@ -238,8 +241,8 @@ class CognitionCurator:
         if not suggestions:
             return []
 
-        # Validate and create edges
-        return self._parse_and_create_edges(node.id, suggestions)
+        # Validate and create edges (or merge if duplicate detected)
+        return self._parse_and_create_edges(node, suggestions)
 
     @staticmethod
     def _truncate(text: str, max_len: int = 500) -> str:
@@ -325,16 +328,16 @@ class CognitionCurator:
             return None
 
     def _parse_and_create_edges(
-        self, new_node_id: str, suggestions: list[dict]
+        self, new_node: CognitionNode, suggestions: list[dict]
     ) -> list[CognitionEdge]:
-        """Validate suggestions and create edges in storage.
+        """Validate suggestions and create edges or handle merges.
 
         Args:
-            new_node_id: ID of the newly added node
+            new_node: The newly added node
             suggestions: Raw edge suggestions from the LLM
 
         Returns:
-            List of successfully created edges
+            List of successfully created edges (empty if merged)
         """
         created = []
         timestamp = datetime.now(timezone.utc).isoformat()
@@ -356,11 +359,16 @@ class CognitionCurator:
                 logger.debug(f"Curator: skipping nonexistent node '{candidate_id}'")
                 continue
 
+            # Handle duplicate detection — merge and return early
+            if edge_type_str == CognitionEdgeType.DUPLICATE_OF.value:
+                self._handle_merge(new_node, candidate_id)
+                return []  # No edges to return — node was merged
+
             # Determine edge direction
             if direction == "from_new":
-                from_id, to_id = new_node_id, candidate_id
+                from_id, to_id = new_node.id, candidate_id
             else:
-                from_id, to_id = candidate_id, new_node_id
+                from_id, to_id = candidate_id, new_node.id
 
             edge = CognitionEdge(
                 from_id=from_id,
@@ -377,3 +385,48 @@ class CognitionCurator:
                 created.append(edge)
 
         return created
+
+    def _handle_merge(self, new_node: CognitionNode, existing_id: str) -> None:
+        """Merge a duplicate new node into an existing node.
+
+        Keeps the existing (older) node, enriches it with context/references
+        from the new node, redirects edges, and removes the new node.
+        """
+        existing = self._storage.get_node(existing_id)
+        if not existing:
+            return
+
+        # Merge context (union, dedup)
+        merged_context = list(set(existing.get("context", []) + new_node.context))
+
+        # Merge references (union, dedup)
+        merged_refs = list(set(existing.get("references", []) + new_node.references))
+
+        # Take higher severity
+        severity = existing.get("severity")
+        if new_node.severity:
+            levels = {"critical": 4, "high": 3, "normal": 2, "low": 1}
+            if levels.get(new_node.severity, 0) > levels.get(severity or "", 0):
+                severity = new_node.severity
+
+        # Update existing node with merged data
+        self._storage.update_node(
+            existing_id,
+            context=merged_context,
+            references=merged_refs,
+            severity=severity,
+        )
+
+        # Redirect any edges from/to new node to existing node
+        redirected = self._storage.redirect_edges(new_node.id, existing_id)
+
+        # Remove new node from graph
+        self._storage.remove_node(new_node.id)
+
+        # Remove new node from ChromaDB
+        self._embedding_storage.delete_embedding(new_node.id)
+
+        logger.info(
+            f"Curator: merged duplicate node {new_node.id} into {existing_id} "
+            f"({redirected} edge(s) redirected)"
+        )
