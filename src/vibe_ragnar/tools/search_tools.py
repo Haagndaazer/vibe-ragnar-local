@@ -22,7 +22,10 @@ def register_search_tools(mcp) -> None:
         entity_type: str | None = None,
         file_path_prefix: str | None = None,
     ) -> dict[str, Any]:
-        """Search for code using natural language.
+        """Search CODE entities (functions, classes, types) by natural language.
+
+        This searches the code index only. It does NOT search project history
+        (decisions, failures, patterns) — use cognition_search for that.
 
         Args:
             query: What you're looking for, e.g.:

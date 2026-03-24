@@ -146,10 +146,10 @@ def register_cognition_tools(mcp) -> None:
         node_type: str | None = None,
         limit: int = 10,
     ) -> dict[str, Any]:
-        """Search cognition history using natural language.
+        """Search PROJECT HISTORY (decisions, failures, discoveries, patterns) by natural language.
 
-        Finds decisions, failures, discoveries, incidents, patterns, etc.
-        by semantic similarity to the query.
+        This searches the cognition graph only. It does NOT search code
+        (functions, classes, types) — use semantic_search for that.
 
         Args:
             query: What you're looking for, e.g.:

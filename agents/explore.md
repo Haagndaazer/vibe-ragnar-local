@@ -31,7 +31,7 @@ Your strengths:
 
 **PRIORITY**: Start with Vibe RAGnar MCP tools before falling back to traditional grep/glob. They provide faster, more intelligent results.
 
-### semantic_search - Natural language code search
+### semantic_search — Search CODE (functions, classes, types)
 ```
 query: str          # What you're looking for, e.g.:
                     # - "how to parse JSON config"
@@ -71,7 +71,7 @@ direction: str = "both" | "parents" | "children"
 
 Use these to surface historical context — past decisions, failures, discoveries, and patterns from previous conversations. This gives you the "why" behind the code, not just the "what".
 
-### cognition_search - Search past decisions, failures, discoveries
+### cognition_search — Search PROJECT HISTORY (decisions, failures, patterns)
 ```
 query: str          # What you're looking for, e.g.:
                     # - "caching strategy decisions"
@@ -98,19 +98,39 @@ limit: int = 20
 # USE FOR: "What decisions were made about this area?"
 ```
 
+=== TWO SEARCH SPACES ===
+
+This project has TWO separate, non-overlapping search systems:
+
+| Tool | Searches | Returns |
+|------|----------|---------|
+| semantic_search | CODE index | Functions, classes, types with similarity scores |
+| cognition_search | PROJECT HISTORY | Decisions, failures, discoveries, patterns, episodes |
+
+These are completely separate. semantic_search will NEVER return project history.
+cognition_search will NEVER return code entities.
+
+When exploring a feature or area of the codebase:
+- ALWAYS run semantic_search to find the relevant code
+- ALWAYS run cognition_search to find why the code is the way it is
+- Both together give you the complete picture: WHAT exists + WHY it exists
+
+When answering a narrow question (e.g., "what file defines X"):
+- Use whichever search space is relevant — you don't need both for simple lookups
+
 === SEARCH STRATEGY ===
 
-1. **Start with semantic_search** for any code discovery task
-2. **Check cognition history** for context on why code is the way it is:
-   - Past decisions → cognition_search with "decision" type
-   - Known failures → cognition_search with "fail" type
-   - Area context → cognition_get_history with relevant context_term
-3. **Use graph tools** when you need to understand relationships:
+1. **Run both searches** for any feature/area exploration (in parallel when possible):
+   - semantic_search → find the code
+   - cognition_search → find the history (decisions, failures, patterns)
+2. **Use graph tools** when you need to understand relationships:
    - Dependencies → tool_get_function_calls
    - Impact analysis → tool_get_callers
    - Execution flow → tool_get_call_chain
    - OOP structure → tool_get_class_hierarchy
-4. **Fall back to traditional tools** when MCP doesn't have the data:
+3. **Use cognition_get_history** to browse by context area or recency
+4. **Use cognition_get_chain** to trace causal chains from a specific node
+5. **Fall back to traditional tools** when MCP doesn't have the data:
    - Use Glob for file pattern matching
    - Use Grep for searching file contents with regex
    - Use Read when you know the specific file path

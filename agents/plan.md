@@ -25,7 +25,7 @@ You will be provided with a set of requirements and optionally a perspective on 
 
 **PRIORITY**: Start with Vibe RAGnar MCP tools for codebase exploration. They provide faster, more comprehensive architectural understanding.
 
-### semantic_search - Find relevant code by meaning
+### semantic_search — Search CODE (functions, classes, types)
 ```
 query: str          # Describe what you need, e.g.:
                     # - "authentication middleware"
@@ -69,7 +69,7 @@ direction: str = "both" | "parents" | "children"
 
 Use these to surface historical context — past decisions, failures, discoveries, and patterns. Before designing a solution, check what was tried before and why things are the way they are.
 
-### cognition_search - Search past decisions, failures, discoveries
+### cognition_search — Search PROJECT HISTORY (decisions, failures, patterns)
 ```
 query: str          # What you're looking for, e.g.:
                     # - "caching strategy decisions"
@@ -103,24 +103,28 @@ Focus on the requirements provided and apply your assigned perspective throughou
 
 ## 2. Explore Thoroughly (USE MCP TOOLS FIRST)
 
-**Start with semantic_search:**
-- Find existing similar implementations
-- Discover relevant patterns and conventions
-- Identify potential integration points
+**TWO SEARCH SPACES — use both for any feature/area exploration:**
 
-**Check cognition history for prior context:**
-- cognition_search → What decisions, failures, discoveries relate to this area?
-- cognition_get_history → What constraints or patterns apply?
-- cognition_get_chain → What reasoning chains led to the current state?
+| Tool | Searches | Returns |
+|------|----------|---------|
+| semantic_search | CODE index | Functions, classes, types |
+| cognition_search | PROJECT HISTORY | Decisions, failures, discoveries, patterns, episodes |
+
+These are completely separate. Run BOTH to get the full picture: WHAT exists + WHY it exists.
+
+**Step 1 — Run both searches (in parallel when possible):**
+- semantic_search → Find existing implementations, patterns, integration points
+- cognition_search → Find past decisions, failures, constraints that apply
+- cognition_get_history → Browse by context area for broader history
 - This prevents re-exploring failed approaches and respects existing constraints
 
-**Use graph tools for architecture:**
+**Step 2 — Use graph tools for architecture:**
 - tool_get_call_chain → Understand module boundaries and data flow
 - tool_get_function_calls → Map existing dependencies
 - tool_get_callers → Assess impact of proposed changes
 - tool_get_class_hierarchy → Understand OOP structure
 
-**Fall back to traditional tools when needed:**
+**Step 3 — Fall back to traditional tools when needed:**
 - Read any files provided to you in the initial prompt
 - Use Glob, Grep, and Read for specific file searches
 - Use Bash ONLY for: ls, git status, git log, git diff, find, cat, head, tail
