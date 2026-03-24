@@ -108,15 +108,18 @@ def register_cognition_tools(mcp) -> None:
 
         Use this to capture important context from conversations: what was decided,
         what failed, what was discovered, assumptions made, constraints identified,
-        production incidents, or generalized patterns/lessons learned.
+        production incidents, generalized patterns, or episode summaries of completed work.
 
         Edges to related existing nodes are created automatically by a curator LLM
         in the background — you do not need to specify relationships manually.
 
+        For entities (decision, fail, discovery, etc.): keep summary under 250 chars
+        and detail brief (1-3 sentences). For episodes: detail can be the full narrative.
+
         Args:
-            node_type: One of: decision, fail, discovery, assumption, constraint, incident, pattern
-            summary: Short description
-            detail: Full context, rationale, and reasoning
+            node_type: One of: decision, fail, discovery, assumption, constraint, incident, pattern, episode
+            summary: Short description (max 250 chars for entities)
+            detail: Brief rationale for entities, or full narrative for episodes
             context: Related code areas, file paths, or topics (comma-separated)
             author: Who is recording this
             severity: Optional priority (critical, high, normal, low)
@@ -154,7 +157,7 @@ def register_cognition_tools(mcp) -> None:
                    - "what failed with the migration"
                    - "localization issues"
             node_type: Optional filter: decision, fail, discovery, assumption,
-                       constraint, incident, pattern
+                       constraint, incident, pattern, episode
             limit: Max results (default: 10)
 
         Returns:
@@ -230,7 +233,7 @@ def register_cognition_tools(mcp) -> None:
         Args:
             context_term: Optional term to search in context fields (file paths, topics)
             node_type: Optional filter: decision, fail, discovery, assumption,
-                       constraint, incident, pattern
+                       constraint, incident, pattern, episode
             limit: Max results (default: 20)
 
         Returns:

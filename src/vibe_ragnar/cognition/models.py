@@ -17,6 +17,7 @@ class CognitionNodeType(str, Enum):
     CONSTRAINT = "constraint"
     INCIDENT = "incident"
     PATTERN = "pattern"
+    EPISODE = "episode"
 
 
 class CognitionEdgeType(str, Enum):
@@ -27,6 +28,7 @@ class CognitionEdgeType(str, Enum):
     CONTRADICTS = "contradicts"
     RELATES_TO = "relates_to"
     RESOLVED_BY = "resolved_by"
+    PART_OF = "part_of"
 
 
 class CognitionNode(BaseModel):

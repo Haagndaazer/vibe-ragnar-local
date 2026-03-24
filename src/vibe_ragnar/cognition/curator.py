@@ -18,7 +18,7 @@ You are a knowledge graph curator. You analyze a new node being added to a cogni
 history graph and determine if it has meaningful relationships to existing nodes.
 
 The graph tracks development decisions, failures, discoveries, assumptions, constraints, \
-incidents, and patterns.
+incidents, patterns, and episodes (summaries of completed work).
 
 Available edge types:
 - led_to: A causal chain. X led to Y happening. Direction matters.
@@ -26,11 +26,16 @@ Available edge types:
 - contradicts: X contradicts or conflicts with Y. Only for genuine conflicts.
 - relates_to: Same topic/system but no causal or hierarchical relationship. Use sparingly.
 - resolved_by: X (incident/failure) was resolved/fixed by Y (decision/discovery).
+- part_of: Entity belongs to an episode. Use when an entity and an episode share the same \
+issue/PR reference (e.g., both reference "issue:LL-298"). If the new node is an entity and \
+the existing node is an episode, direction is "from_new". If the new node is an episode and \
+the existing node is an entity, direction is "to_new".
 
 Rules:
 - Only suggest edges where there is a genuine, meaningful relationship.
 - Do NOT create edges just because nodes share keywords. The relationship must be substantive.
-- Prefer specific edge types (led_to, supersedes, contradicts, resolved_by) over relates_to.
+- Prefer specific edge types (led_to, supersedes, contradicts, resolved_by, part_of) over relates_to.
+- For part_of: match on shared references (issue numbers, PR numbers). This is the primary signal.
 - For supersedes: only use when the new node explicitly replaces an older decision/assumption.
 - For contradicts: only use when there is a genuine logical conflict.
 - It is perfectly fine to suggest zero edges if none are meaningful.
@@ -41,7 +46,7 @@ Respond with JSON only:
   "edges": [
     {
       "candidate_id": "<id of the existing node>",
-      "edge_type": "<led_to|supersedes|contradicts|relates_to|resolved_by>",
+      "edge_type": "<led_to|supersedes|contradicts|relates_to|resolved_by|part_of>",
       "direction": "<from_new|to_new>",
       "reason": "<brief explanation>"
     }
@@ -236,6 +241,13 @@ class CognitionCurator:
         # Validate and create edges
         return self._parse_and_create_edges(node.id, suggestions)
 
+    @staticmethod
+    def _truncate(text: str, max_len: int = 500) -> str:
+        """Truncate text to max_len, appending '...' if truncated."""
+        if len(text) <= max_len:
+            return text
+        return text[:max_len] + "..."
+
     def _build_prompt(self, new_node: CognitionNode, candidates: list[dict]) -> str:
         """Build the user prompt with the new node and candidate nodes."""
         parts = [
@@ -243,10 +255,12 @@ class CognitionCurator:
             f"  ID: {new_node.id}",
             f"  Type: {new_node.type.value}",
             f"  Summary: {new_node.summary}",
-            f"  Detail: {new_node.detail}",
+            f"  Detail: {self._truncate(new_node.detail)}",
         ]
         if new_node.context:
             parts.append(f"  Context: {', '.join(new_node.context)}")
+        if new_node.references:
+            parts.append(f"  References: {', '.join(new_node.references)}")
         if new_node.severity:
             parts.append(f"  Severity: {new_node.severity}")
 
@@ -257,7 +271,12 @@ class CognitionCurator:
             parts.append(f"  [{i}] ID: {c['id']}")
             parts.append(f"      Type: {c.get('type', 'unknown')}")
             parts.append(f"      Summary: {c.get('summary', '')}")
-            parts.append(f"      Detail: {c.get('detail', '')}")
+            detail = c.get('detail', '')
+            parts.append(f"      Detail: {self._truncate(detail)}")
+            refs = c.get("references", [])
+            if refs:
+                refs_str = ", ".join(refs) if isinstance(refs, list) else refs
+                parts.append(f"      References: {refs_str}")
             ctx = c.get("context", [])
             if ctx:
                 ctx_str = ", ".join(ctx) if isinstance(ctx, list) else ctx

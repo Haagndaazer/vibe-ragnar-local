@@ -24,8 +24,8 @@ class TestModels:
     """Tests for cognition data models."""
 
     def test_node_types(self):
-        """All 7 node types exist."""
-        assert len(CognitionNodeType) == 7
+        """All 8 node types exist."""
+        assert len(CognitionNodeType) == 8
         assert CognitionNodeType.DECISION.value == "decision"
         assert CognitionNodeType.FAIL.value == "fail"
         assert CognitionNodeType.DISCOVERY.value == "discovery"
@@ -33,10 +33,12 @@ class TestModels:
         assert CognitionNodeType.CONSTRAINT.value == "constraint"
         assert CognitionNodeType.INCIDENT.value == "incident"
         assert CognitionNodeType.PATTERN.value == "pattern"
+        assert CognitionNodeType.EPISODE.value == "episode"
 
     def test_edge_types(self):
-        """All 5 edge types exist."""
-        assert len(CognitionEdgeType) == 5
+        """All 6 edge types exist."""
+        assert len(CognitionEdgeType) == 6
+        assert CognitionEdgeType.PART_OF.value == "part_of"
         assert CognitionEdgeType.LED_TO.value == "led_to"
         assert CognitionEdgeType.SUPERSEDES.value == "supersedes"
         assert CognitionEdgeType.CONTRADICTS.value == "contradicts"
