@@ -220,11 +220,6 @@ async def lifespan(server: FastMCP):
         collection_name="cognition_embeddings",
     )
 
-    # Sync cognition embeddings from JSONL (handles teammates' Git-pulled entries)
-    _sync_cognition_embeddings(
-        cognition_storage, cognition_embedding_storage, embedding_generator
-    )
-
     # Initialize cognition curator
     cognition_curator = None
     if config.curator_enabled:
@@ -240,23 +235,23 @@ async def lifespan(server: FastMCP):
         )
         logger.info(f"Cognition curator initialized (model: {config.curator_model})")
 
-        # Background: ensure model is pulled and curate any uncurated nodes
-        def _curator_startup(curator: CognitionCurator) -> None:
-            try:
-                if not curator.ensure_model():
+    # Background: sync embeddings, ensure model, curate uncurated nodes
+    def _cognition_startup() -> None:
+        try:
+            _sync_cognition_embeddings(
+                cognition_storage, cognition_embedding_storage, embedding_generator
+            )
+            if cognition_curator is not None:
+                if not cognition_curator.ensure_model():
                     logger.warning("Curator model not available — skipping startup curation")
                     return
-                count = curator.curate_uncurated_nodes()
+                count = cognition_curator.curate_uncurated_nodes()
                 if count:
                     logger.info(f"Curator startup: curated {count} previously uncurated node(s)")
-            except Exception as e:
-                logger.warning(f"Curator startup failed: {e}")
+        except Exception as e:
+            logger.warning(f"Cognition startup failed: {e}")
 
-        threading.Thread(
-            target=_curator_startup,
-            args=(cognition_curator,),
-            daemon=True,
-        ).start()
+    threading.Thread(target=_cognition_startup, daemon=True).start()
 
     # Build context for tools (before indexing so MCP handshake completes quickly)
     context: dict[str, Any] = {
