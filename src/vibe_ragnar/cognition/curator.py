@@ -72,6 +72,82 @@ class CognitionCurator:
         self._model = model
         self._max_candidates = max_candidates
 
+    def ensure_model(self) -> bool:
+        """Ensure the curator model is available in Ollama, pulling if needed.
+
+        Returns:
+            True if the model is available (or was pulled), False on failure
+        """
+        try:
+            import httpx
+
+            # Check if model exists
+            resp = httpx.get(
+                f"{self._ollama_base_url}/api/tags", timeout=10.0
+            )
+            resp.raise_for_status()
+            models = resp.json().get("models", [])
+            model_names = [m.get("name", "") for m in models]
+
+            # Check for exact match or match without tag
+            base_name = self._model.split(":")[0]
+            if any(self._model in n or base_name in n for n in model_names):
+                logger.info(f"Curator model '{self._model}' is available")
+                return True
+
+            # Pull the model
+            logger.info(f"Pulling curator model '{self._model}' (this may take a few minutes)...")
+            pull_resp = httpx.post(
+                f"{self._ollama_base_url}/api/pull",
+                json={"name": self._model, "stream": False},
+                timeout=600.0,  # 10 min timeout for large model downloads
+            )
+            pull_resp.raise_for_status()
+            logger.info(f"Curator model '{self._model}' pulled successfully")
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to ensure curator model: {e}")
+            return False
+
+    def curate_uncurated_nodes(self) -> int:
+        """Find nodes with no edges and curate them.
+
+        Returns:
+            Number of nodes that were curated
+        """
+        all_nodes = self._storage.get_all_nodes()
+        if not all_nodes:
+            return 0
+
+        curated_count = 0
+        for node_data in all_nodes:
+            node_id = node_data["id"]
+            # Skip if this node already has any edges (incoming or outgoing)
+            if (self._storage.get_successors(node_id) or
+                    self._storage.get_predecessors(node_id)):
+                continue
+
+            # Reconstruct CognitionNode from stored data
+            try:
+                node = CognitionNode(
+                    id=node_id,
+                    type=node_data["type"],
+                    summary=node_data.get("summary", ""),
+                    detail=node_data.get("detail", ""),
+                    context=node_data.get("context", []),
+                    references=node_data.get("references", []),
+                    severity=node_data.get("severity"),
+                    timestamp=node_data.get("timestamp", ""),
+                    author=node_data.get("author", ""),
+                )
+                edges = self.curate(node)
+                if edges:
+                    curated_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to curate node {node_id}: {e}")
+
+        return curated_count
+
     def curate(self, node: CognitionNode) -> list[CognitionEdge]:
         """Analyze a new node and create edges to related existing nodes.
 

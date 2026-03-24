@@ -1,6 +1,5 @@
 """Cognition History Graph — captures decisions, failures, discoveries, and reasoning chains."""
 
-from .curator import CognitionCurator
 from .models import CognitionEdge, CognitionEdgeType, CognitionNode, CognitionNodeType, generate_node_id
 from .queries import (
     get_history_for_context,
@@ -9,6 +8,10 @@ from .queries import (
     get_superseded_chain,
 )
 from .storage import CognitionStorage
+
+# CognitionCurator is NOT imported here to avoid pulling in the heavy
+# embeddings/sentence-transformers dependency chain at import time.
+# Import it directly: from vibe_ragnar.cognition.curator import CognitionCurator
 
 __all__ = [
     # Models
@@ -19,8 +22,6 @@ __all__ = [
     "generate_node_id",
     # Storage
     "CognitionStorage",
-    # Curator
-    "CognitionCurator",
     # Queries
     "get_history_for_context",
     "get_incident_resolution",

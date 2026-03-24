@@ -6,12 +6,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from vibe_ragnar.cognition import (
-    CognitionCurator,
     CognitionEdgeType,
     CognitionNode,
     CognitionNodeType,
     CognitionStorage,
 )
+from vibe_ragnar.cognition.curator import CognitionCurator
 
 
 @pytest.fixture

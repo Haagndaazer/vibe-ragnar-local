@@ -240,6 +240,24 @@ async def lifespan(server: FastMCP):
         )
         logger.info(f"Cognition curator initialized (model: {config.curator_model})")
 
+        # Background: ensure model is pulled and curate any uncurated nodes
+        def _curator_startup(curator: CognitionCurator) -> None:
+            try:
+                if not curator.ensure_model():
+                    logger.warning("Curator model not available — skipping startup curation")
+                    return
+                count = curator.curate_uncurated_nodes()
+                if count:
+                    logger.info(f"Curator startup: curated {count} previously uncurated node(s)")
+            except Exception as e:
+                logger.warning(f"Curator startup failed: {e}")
+
+        threading.Thread(
+            target=_curator_startup,
+            args=(cognition_curator,),
+            daemon=True,
+        ).start()
+
     # Build context for tools (before indexing so MCP handshake completes quickly)
     context: dict[str, Any] = {
         "config": config,
