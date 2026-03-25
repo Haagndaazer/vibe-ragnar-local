@@ -200,11 +200,15 @@ def _load_embeddings_and_index(config: Settings, context: dict[str, Any]) -> Non
 
     This runs after the MCP handshake completes so the server starts fast.
     """
+    import time
+
     try:
         # Load embedding model (the bottleneck: 2-30s)
-        logger.info(f"Loading embedding model ({config.embedding_backend})...")
+        t_start = time.monotonic()
+        logger.info(f"Background: loading embedding model ({config.embedding_backend})...")
         embedding_generator = EmbeddingGenerator.from_config(config)
-        logger.info("Embedding model loaded")
+        t_model = time.monotonic()
+        logger.info(f"Background: embedding model loaded in {t_model - t_start:.1f}s")
 
         embedding_storage: ChromaDBStorage = context["embedding_storage"]
         embedding_sync = EmbeddingSync(

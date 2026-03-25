@@ -2,6 +2,7 @@
 
 import logging
 import threading
+import time
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
@@ -43,13 +44,18 @@ class SentenceTransformersBackend(EmbeddingBackend):
             model_name: Name of the model to use (e.g., 'nomic-ai/nomic-embed-text-v1.5')
             dimensions: Optional dimension truncation
         """
+        t0 = time.monotonic()
+        logger.info(f"Importing sentence-transformers...")
         from sentence_transformers import SentenceTransformer
 
-        logger.info(f"Loading sentence-transformers model: {model_name}")
+        t1 = time.monotonic()
+        logger.info(f"Import complete ({t1 - t0:.1f}s). Loading model: {model_name}")
         self._model = SentenceTransformer(model_name, trust_remote_code=True)
+
+        t2 = time.monotonic()
         self._dimensions = dimensions
         self._lock = threading.Lock()
-        logger.info(f"Model loaded successfully")
+        logger.info(f"Model loaded successfully (import: {t1 - t0:.1f}s, model: {t2 - t1:.1f}s, total: {t2 - t0:.1f}s)")
 
     def encode(self, texts: list[str], is_query: bool = False) -> list[list[float]]:
         """Encode texts into embeddings.
