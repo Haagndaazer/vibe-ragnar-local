@@ -5,6 +5,7 @@ from typing import Any
 from fastmcp import Context
 
 from ..embeddings import ChromaDBStorage, EmbeddingGenerator
+from . import require_embeddings
 
 
 def register_search_tools(mcp) -> None:
@@ -41,6 +42,10 @@ def register_search_tools(mcp) -> None:
         Returns:
             Matching code entities with similarity scores
         """
+        err = require_embeddings(ctx)
+        if err:
+            return err
+
         generator: EmbeddingGenerator = ctx.request_context.lifespan_context["embedding_generator"]
         storage: ChromaDBStorage = ctx.request_context.lifespan_context["embedding_storage"]
         config = ctx.request_context.lifespan_context["config"]

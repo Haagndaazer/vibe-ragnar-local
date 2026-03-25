@@ -8,6 +8,7 @@ from fastmcp import Context
 from ..embeddings import ChromaDBStorage, EmbeddingSync
 from ..graph import GraphBuilder, GraphStorage
 from ..parser import TreeSitterParser
+from . import require_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,17 @@ def register_service_tools(mcp) -> None:
             "watcher_active": watcher_active,
         }
 
+        # Add embedding model status
+        embedding_ready = ctx.request_context.lifespan_context.get("embedding_ready")
+        embedding_error = ctx.request_context.lifespan_context.get("embedding_error")
+        if embedding_ready and not embedding_ready.is_set():
+            result["embedding_status"] = "loading"
+        elif embedding_error:
+            result["embedding_status"] = "error"
+            result["embedding_error"] = embedding_error
+        else:
+            result["embedding_status"] = "ready"
+
         # Add indexing progress info
         if not indexing_complete:
             result["indexing"] = {
@@ -112,6 +124,10 @@ def register_service_tools(mcp) -> None:
         Returns:
             Reindexing results with counts
         """
+        err = require_embeddings(ctx)
+        if err:
+            return err
+
         config = ctx.request_context.lifespan_context["config"]
         parser: TreeSitterParser = ctx.request_context.lifespan_context["parser"]
         graph: GraphStorage = ctx.request_context.lifespan_context["graph"]

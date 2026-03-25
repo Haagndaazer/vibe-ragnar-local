@@ -195,6 +195,87 @@ def _sync_cognition_embeddings(
     logger.info(f"Cognition embedding sync complete: {len(missing)} nodes added")
 
 
+def _load_embeddings_and_index(config: Settings, context: dict[str, Any]) -> None:
+    """Background thread: load embedding model, start watcher, run indexing.
+
+    This runs after the MCP handshake completes so the server starts fast.
+    """
+    try:
+        # Load embedding model (the bottleneck: 2-30s)
+        logger.info(f"Loading embedding model ({config.embedding_backend})...")
+        embedding_generator = EmbeddingGenerator.from_config(config)
+        logger.info("Embedding model loaded")
+
+        embedding_storage: ChromaDBStorage = context["embedding_storage"]
+        embedding_sync = EmbeddingSync(
+            generator=embedding_generator,
+            storage=embedding_storage,
+            repo_name=config.effective_repo_name,
+        )
+
+        # Populate context
+        context["embedding_generator"] = embedding_generator
+        context["embedding_sync"] = embedding_sync
+
+        # Init curator (depends on embedding_generator)
+        cognition_curator = None
+        if config.curator_enabled:
+            from .cognition.curator import CognitionCurator
+
+            cognition_curator = CognitionCurator(
+                storage=context["cognition_storage"],
+                embedding_storage=context["cognition_embedding_storage"],
+                embedding_generator=embedding_generator,
+                ollama_base_url=config.ollama_base_url,
+                model=config.curator_model,
+                max_candidates=config.curator_max_candidates,
+            )
+            context["cognition_curator"] = cognition_curator
+            logger.info(f"Cognition curator initialized (model: {config.curator_model})")
+
+        # Signal that embedding-dependent tools are ready
+        context["embedding_ready"].set()
+        logger.info("All tools now available")
+
+        # Start file watcher (depends on embedding_sync)
+        parser: TreeSitterParser = context["parser"]
+        graph_builder: GraphBuilder = context["graph_builder"]
+        graph_storage: GraphStorage = context["graph"]
+
+        change_handler = create_file_change_handler(
+            parser=parser,
+            graph_builder=graph_builder,
+            graph_storage=graph_storage,
+            embedding_sync=embedding_sync,
+            repo_root=config.repo_path,
+        )
+        watcher = FileWatcher(
+            repo_path=config.repo_path,
+            on_changes=change_handler,
+            debounce_seconds=config.debounce_seconds,
+        )
+        watcher.start()
+        context["watcher"] = watcher
+        context["watcher_active"] = True
+        logger.info("File watcher started")
+
+        # Run initial indexing
+        run_initial_indexing(
+            parser=parser,
+            graph_builder=graph_builder,
+            graph_storage=graph_storage,
+            embedding_sync=embedding_sync,
+            repo_path=config.repo_path,
+            context=context,
+            include_dirs=config.include_dirs,
+        )
+
+    except Exception as e:
+        logger.error(f"Initialization failed: {e}")
+        context["embedding_error"] = str(e)
+        context["embedding_ready"].set()  # Signal so tools don't hang forever
+
+
 @asynccontextmanager
 async def lifespan(server: FastMCP):
     """Manage server lifecycle - initialize and cleanup resources."""
@@ -209,16 +290,14 @@ async def lifespan(server: FastMCP):
     logger.info(f"Starting Vibe RAGnar for repository: {config.effective_repo_name}")
     logger.info(f"Repository path: {config.repo_path}")
 
+    # ── Fast init (blocking, ~500ms-1s) ───────────────────────────────
+
     # Initialize ChromaDB storage
     logger.info(f"Initializing ChromaDB at {config.chromadb_path}...")
     embedding_storage = ChromaDBStorage(
         persist_directory=config.chromadb_path,
         collection_name=config.chromadb_collection,
     )
-
-    # Initialize embedding generator
-    logger.info(f"Initializing embedding backend ({config.embedding_backend})...")
-    embedding_generator = EmbeddingGenerator.from_config(config)
 
     # Initialize graph storage with persistence
     logger.info(f"Initializing graph storage at {config.graph_pickle_path}...")
@@ -231,13 +310,6 @@ async def lifespan(server: FastMCP):
     # Initialize graph builder
     graph_builder = GraphBuilder(graph_storage)
 
-    # Initialize embedding sync
-    embedding_sync = EmbeddingSync(
-        generator=embedding_generator,
-        storage=embedding_storage,
-        repo_name=config.effective_repo_name,
-    )
-
     # Initialize cognition graph
     logger.info(f"Initializing cognition graph at {config.cognition_dir}...")
     cognition_storage = CognitionStorage(config.cognition_dir)
@@ -246,34 +318,20 @@ async def lifespan(server: FastMCP):
         collection_name="cognition_embeddings",
     )
 
-    # Initialize cognition curator
-    cognition_curator = None
-    if config.curator_enabled:
-        from .cognition.curator import CognitionCurator
-
-        cognition_curator = CognitionCurator(
-            storage=cognition_storage,
-            embedding_storage=cognition_embedding_storage,
-            embedding_generator=embedding_generator,
-            ollama_base_url=config.ollama_base_url,
-            model=config.curator_model,
-            max_candidates=config.curator_max_candidates,
-        )
-        logger.info(f"Cognition curator initialized (model: {config.curator_model})")
-
-    # Build context for tools (before indexing so MCP handshake completes quickly)
+    # Build context for tools
     context: dict[str, Any] = {
         "config": config,
         "graph": graph_storage,
         "graph_builder": graph_builder,
         "parser": parser,
         "embedding_storage": embedding_storage,
-        "embedding_generator": embedding_generator,
-        "embedding_sync": embedding_sync,
+        "embedding_generator": None,  # Set by background thread
+        "embedding_sync": None,  # Set by background thread
         "cognition_storage": cognition_storage,
         "cognition_embedding_storage": cognition_embedding_storage,
-        "cognition_curator": cognition_curator,
-        "watcher": None,  # Will be set after watcher starts
+        "cognition_curator": None,  # Set by background thread
+        "embedding_ready": threading.Event(),
+        "watcher": None,  # Set by background thread
         "watcher_active": False,
         "indexing_complete": False,
         "indexing_error": None,
@@ -282,50 +340,33 @@ async def lifespan(server: FastMCP):
         "indexing_embeddable_entities": 0,
     }
 
-    # Start background indexing
-    indexing_thread = threading.Thread(
-        target=run_initial_indexing,
-        args=(
-            parser,
-            graph_builder,
-            graph_storage,
-            embedding_sync,
-            config.repo_path,
-            context,
-            config.include_dirs,
-        ),
+    # ── Background init (2-30s for model, then indexing) ──────────────
+
+    bg_thread = threading.Thread(
+        target=_load_embeddings_and_index,
+        args=(config, context),
         daemon=True,
     )
-    indexing_thread.start()
+    bg_thread.start()
+    context["_bg_thread"] = bg_thread
 
-    # Initialize file watcher
-    logger.info("Starting file watcher...")
-    change_handler = create_file_change_handler(
-        parser=parser,
-        graph_builder=graph_builder,
-        graph_storage=graph_storage,
-        embedding_sync=embedding_sync,
-        repo_root=config.repo_path,
-    )
-
-    watcher = FileWatcher(
-        repo_path=config.repo_path,
-        on_changes=change_handler,
-        debounce_seconds=config.debounce_seconds,
-    )
-    watcher.start()
-
-    # Update context with watcher
-    context["watcher"] = watcher
-    context["watcher_active"] = True
-
-    logger.info("Vibe RAGnar ready (indexing in background)")
+    logger.info("Vibe RAGnar ready (embedding model loading in background)")
 
     yield context
 
-    # Cleanup
+    # ── Cleanup ───────────────────────────────────────────────────────
+
     logger.info("Shutting down Vibe RAGnar...")
-    watcher.stop()
+
+    # Give background thread a chance to finish
+    bg_thread = context.get("_bg_thread")
+    if bg_thread:
+        bg_thread.join(timeout=5.0)
+
+    watcher = context.get("watcher")
+    if watcher:
+        watcher.stop()
+
     graph_storage.save()  # Save graph on shutdown
     embedding_storage.close()
     cognition_embedding_storage.close()

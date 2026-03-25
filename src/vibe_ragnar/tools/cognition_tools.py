@@ -16,6 +16,7 @@ from ..cognition import (
 )
 from ..cognition.curator import CognitionCurator
 from ..embeddings import ChromaDBStorage, EmbeddingGenerator
+from . import require_embeddings
 
 logger = logging.getLogger(__name__)
 
@@ -57,21 +58,23 @@ def _record_node(
     )
     storage.add_node(node)
 
-    # Embed and upsert to ChromaDB
-    embed_text = f"{node_type.value}: {summary}\n{detail}"
-    embedding = generator.generate_query_embedding(embed_text)
-    metadata: dict[str, Any] = {
-        "entity_type": node_type.value,
-        "summary": summary,
-        "author": author,
-        "timestamp": timestamp,
-        "context": ",".join(context_list),
-    }
-    if severity:
-        metadata["severity"] = severity
-    if references_list:
-        metadata["references"] = ",".join(references_list)
-    embedding_storage.upsert_embedding(node_id, embedding, metadata)
+    # Embed and upsert to ChromaDB (skip if model not loaded yet — startup sync catches it later)
+    embedding_ready = ctx.request_context.lifespan_context.get("embedding_ready")
+    if embedding_ready and embedding_ready.is_set() and not ctx.request_context.lifespan_context.get("embedding_error"):
+        embed_text = f"{node_type.value}: {summary}\n{detail}"
+        embedding = generator.generate_query_embedding(embed_text)
+        metadata: dict[str, Any] = {
+            "entity_type": node_type.value,
+            "summary": summary,
+            "author": author,
+            "timestamp": timestamp,
+            "context": ",".join(context_list),
+        }
+        if severity:
+            metadata["severity"] = severity
+        if references_list:
+            metadata["references"] = ",".join(references_list)
+        embedding_storage.upsert_embedding(node_id, embedding, metadata)
 
     # Enqueue for curator (edges are created asynchronously by the worker thread)
     curator: CognitionCurator | None = ctx.request_context.lifespan_context.get("cognition_curator")
@@ -189,6 +192,10 @@ def register_cognition_tools(mcp) -> None:
         Returns:
             Matching cognition nodes with similarity scores
         """
+        err = require_embeddings(ctx)
+        if err:
+            return err
+
         embedding_storage: ChromaDBStorage = ctx.request_context.lifespan_context[
             "cognition_embedding_storage"
         ]
