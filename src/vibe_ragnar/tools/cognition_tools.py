@@ -16,7 +16,7 @@ from ..cognition import (
 )
 from ..cognition.curator import CognitionCurator
 from ..embeddings import ChromaDBStorage, EmbeddingGenerator
-from . import require_embeddings
+from .utils import require_embeddings
 
 logger = logging.getLogger(__name__)
 

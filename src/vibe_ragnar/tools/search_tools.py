@@ -5,7 +5,7 @@ from typing import Any
 from fastmcp import Context
 
 from ..embeddings import ChromaDBStorage, EmbeddingGenerator
-from . import require_embeddings
+from .utils import require_embeddings
 
 
 def register_search_tools(mcp) -> None:

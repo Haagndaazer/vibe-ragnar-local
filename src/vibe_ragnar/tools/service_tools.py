@@ -8,7 +8,7 @@ from fastmcp import Context
 from ..embeddings import ChromaDBStorage, EmbeddingSync
 from ..graph import GraphBuilder, GraphStorage
 from ..parser import TreeSitterParser
-from . import require_embeddings
+from .utils import require_embeddings
 
 logger = logging.getLogger(__name__)
 
