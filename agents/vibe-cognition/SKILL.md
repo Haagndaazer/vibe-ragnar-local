@@ -1,5 +1,5 @@
 ---
-description: Record project knowledge to the vibe-ragnar cognition graph. Use proactively when making decisions, encountering failures, discovering non-obvious behavior, or completing a body of work. Edges between nodes are created automatically by a curator LLM — you only create nodes.
+description: Use this skill any time you need to retrieve or write project history to persistent memory. 
 ---
 
 # Vibe Cognition — Project Knowledge Graph
@@ -30,7 +30,7 @@ Entities are **concise, searchable facts** — like index cards, not essays.
 
 Type: `episode`
 
-Episodes capture the **complete narrative** of a body of work — a Linear task lifecycle, a debugging session, a feature implementation. Create one when work is complete.
+Episodes capture the **complete narrative** of a body of work — a Linear task lifecycle, git push, a debugging session, a feature implementation. Create one when work is complete.
 
 - **summary**: Brief title ("LL-298: Data wipe investigation and 3-phase fix")
 - **detail**: The full story — everything that happened, all context. Verbose is fine here.
@@ -51,7 +51,8 @@ The curator auto-links entities to episodes via `PART_OF` edges when they share 
 - An assumption is made that could later prove wrong
 
 ### Create episodes when:
-- A Linear task is completed
+- A Git push is done
+- a Linear issue is completed.
 - A significant debugging session concludes
 - A feature implementation is done
 - An incident is fully resolved
