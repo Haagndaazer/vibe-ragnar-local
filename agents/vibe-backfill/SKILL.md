@@ -13,7 +13,7 @@ Finds recent git commits that don't have corresponding episode nodes in the cogn
 1. Run the backfill command to find untracked commits:
 
 ```bash
-uv run --directory C:\Users\colto\Documents\vibe-ragnar vibe-ragnar-backfill
+uv run --directory /path/to/vibe-ragnar vibe-ragnar-backfill
 ```
 
 2. For each untracked commit listed in the output, create cognition nodes using `cognition_record`:
