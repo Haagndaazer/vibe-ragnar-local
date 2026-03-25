@@ -139,7 +139,7 @@ class TreeSitterParser:
         entities.extend(classes)
 
         # Extract type definitions (TypeScript, Go, Rust)
-        if language in {"typescript", "go", "rust"}:
+        if language in {"typescript", "go", "rust", "csharp"}:
             types = self._extract_types(tree.root_node, source, relative_path, language, config)
             entities.extend(types)
 
@@ -531,7 +531,7 @@ class TreeSitterParser:
 
     def _find_body(self, node: Node, language: str) -> Node | None:
         """Find the body node of a function definition."""
-        body_types = {"block", "statement_block", "compound_statement"}
+        body_types = {"block", "statement_block", "compound_statement", "arrow_expression_clause"}
 
         # For Dart, the body is a sibling (function_body) not a child
         # function_signature is followed by function_body at the same level
@@ -596,6 +596,24 @@ class TreeSitterParser:
                 text = re.sub(r"^//\s*", "", text)
                 return text.strip()
 
+        elif language == "csharp":
+            # C# uses /// XML doc comments (consecutive comment siblings)
+            prev = node.prev_sibling
+            comments: list[str] = []
+            while prev and prev.type == "comment":
+                text = self._node_text(prev, source)
+                if text.startswith("///"):
+                    text = re.sub(r"^///\s?", "", text)
+                    # Strip XML tags for clean docstring
+                    text = re.sub(r"<[^>]+>", "", text)
+                    comments.append(text.strip())
+                else:
+                    break
+                prev = prev.prev_sibling
+            if comments:
+                comments.reverse()
+                return "\n".join(comments).strip()
+
         return None
 
     def _get_containing_class(self, node: Node, source: bytes) -> str | None:
@@ -614,6 +632,9 @@ class TreeSitterParser:
                 "class_declaration",
                 "class_specifier",
                 "impl_item",
+                "struct_declaration",
+                "interface_declaration",
+                "record_declaration",
             }:
                 name = self._find_class_name(parent, source, "")
                 if name:
@@ -694,6 +715,12 @@ class TreeSitterParser:
             # This is handled differently, not as a function modifier
             pass
 
+        elif language == "csharp":
+            # C# async methods have 'async' modifier
+            for child in node.children:
+                if child.type == "modifier" and self._node_text(child, source) == "async":
+                    return True
+
         return False
 
     def _extract_decorators(self, node: Node, source: bytes, language: str) -> list[str]:
@@ -723,6 +750,20 @@ class TreeSitterParser:
                 if deco_name:
                     decorators.append(deco_name)
                 prev = prev.prev_sibling
+
+        elif language == "csharp":
+            # C# uses [Attribute] syntax via attribute_list nodes
+            for child in node.children:
+                if child.type == "attribute_list":
+                    for attr in child.children:
+                        if attr.type == "attribute":
+                            for attr_child in attr.children:
+                                if attr_child.type == "identifier":
+                                    decorators.append(self._node_text(attr_child, source))
+                                    break
+                                elif attr_child.type == "qualified_name":
+                                    decorators.append(self._node_text(attr_child, source))
+                                    break
 
         return decorators
 
@@ -802,6 +843,21 @@ class TreeSitterParser:
                         if super_child.type == "type_identifier":
                             bases.append(self._node_text(super_child, source))
 
+        elif language == "csharp":
+            # C# uses base_list: class Foo : Bar, IBaz
+            for child in node.children:
+                if child.type == "base_list":
+                    for base_child in child.children:
+                        if base_child.type == "identifier":
+                            bases.append(self._node_text(base_child, source))
+                        elif base_child.type == "qualified_name":
+                            bases.append(self._node_text(base_child, source))
+                        elif base_child.type == "generic_name":
+                            for gc in base_child.children:
+                                if gc.type == "identifier":
+                                    bases.append(self._node_text(gc, source))
+                                    break
+
         return bases
 
     def _extract_method_names(self, node: Node, source: bytes, language: str) -> list[str]:
@@ -814,6 +870,8 @@ class TreeSitterParser:
                 "method_definition",
                 "method_declaration",
                 "function_item",
+                "constructor_declaration",
+                "property_declaration",
             }:
                 name = self._find_function_name(n, source, language)
                 if name:
@@ -1119,12 +1177,13 @@ class TreeSitterParser:
                 "attribute",  # Python
                 "selector_expression",  # Go
                 "field_expression",  # Rust/C++
+                "member_access_expression",  # C#
             }:
                 # Find the object node
                 for child in parent.children:
                     if child.type in {"identifier", "this", "self"}:
                         return self._node_text(child, source)
-                    if child.type in {"member_expression", "attribute", "selector_expression"}:
+                    if child.type in {"member_expression", "attribute", "selector_expression", "member_access_expression"}:
                         # Chained call, get the deepest identifier
                         return self._find_deepest_receiver(child, source)
                 break
@@ -1136,7 +1195,7 @@ class TreeSitterParser:
         for child in node.children:
             if child.type == "identifier":
                 return self._node_text(child, source)
-            if child.type in {"member_expression", "attribute", "selector_expression"}:
+            if child.type in {"member_expression", "attribute", "selector_expression", "member_access_expression"}:
                 return self._find_deepest_receiver(child, source)
         return None
 
@@ -1148,6 +1207,7 @@ class TreeSitterParser:
                 "call_expression",
                 "call",
                 "method_invocation",
+                "invocation_expression",  # C#
             }:
                 # Check if we're in the arguments, not the function position
                 for child in parent.children:
@@ -1161,10 +1221,10 @@ class TreeSitterParser:
         """Check if a call is part of a method chain."""
         parent = node.parent
         while parent:
-            if parent.type in {"member_expression", "attribute", "selector_expression"}:
+            if parent.type in {"member_expression", "attribute", "selector_expression", "member_access_expression"}:
                 # Check if the object is a call_expression
                 for child in parent.children:
-                    if child.type in {"call_expression", "call", "method_invocation"}:
+                    if child.type in {"call_expression", "call", "method_invocation", "invocation_expression"}:
                         return True
             parent = parent.parent
         return False
@@ -1189,6 +1249,10 @@ class TreeSitterParser:
         elif language in {"python", "java"}:
             # Classes start with uppercase
             return name[0].isupper() if name else False
+        elif language == "csharp":
+            # C# uses PascalCase for all methods, so can't use casing heuristic
+            # Object creation is already captured via object_creation_expression
+            return False
         return False
 
     def _is_constructor(
@@ -1219,6 +1283,9 @@ class TreeSitterParser:
         elif language in {"c", "cpp"}:
             # C++ constructor has same name as class
             return class_name is not None and func_name == class_name
+        elif language == "csharp":
+            # C# constructor has same name as class (like Java)
+            return class_name is not None and func_name == class_name.split(".")[-1]
         return False
 
     def _extract_access_modifier(
@@ -1282,6 +1349,28 @@ class TreeSitterParser:
             # No pub = private by default
             return AccessModifier.PRIVATE
 
+        elif language == "csharp":
+            # C# can have compound modifiers (protected internal, private protected)
+            modifiers = set()
+            for child in node.children:
+                if child.type == "modifier":
+                    modifiers.add(self._node_text(child, source))
+            # Match compound modifiers first
+            if "public" in modifiers:
+                return AccessModifier.PUBLIC
+            elif "private" in modifiers and "protected" in modifiers:
+                return AccessModifier.PRIVATE
+            elif "protected" in modifiers and "internal" in modifiers:
+                return AccessModifier.PROTECTED
+            elif "protected" in modifiers:
+                return AccessModifier.PROTECTED
+            elif "internal" in modifiers:
+                return AccessModifier.INTERNAL
+            elif "private" in modifiers:
+                return AccessModifier.PRIVATE
+            # Default in C# is private for members
+            return AccessModifier.PRIVATE
+
         return None
 
     def _is_static(self, node: Node, source: bytes, language: str) -> bool:
@@ -1317,6 +1406,11 @@ class TreeSitterParser:
                         if deco_name == "staticmethod":
                             return True
 
+        elif language == "csharp":
+            for child in node.children:
+                if child.type == "modifier" and self._node_text(child, source) == "static":
+                    return True
+
         return False
 
     def _is_abstract(self, node: Node, source: bytes, language: str) -> bool:
@@ -1351,6 +1445,11 @@ class TreeSitterParser:
                         deco_name = self._extract_decorator_name_ast(child, source)
                         if deco_name in {"abstractmethod", "abc.abstractmethod"}:
                             return True
+
+        elif language == "csharp":
+            for child in node.children:
+                if child.type == "modifier" and self._node_text(child, source) == "abstract":
+                    return True
 
         return False
 
@@ -1440,6 +1539,19 @@ class TreeSitterParser:
                                     constraint=constraint,
                                 ))
 
+        elif language == "csharp":
+            # C# generics: <T, K> with optional constraints
+            for child in node.children:
+                if child.type == "type_parameter_list":
+                    for param_child in child.children:
+                        if param_child.type == "type_parameter":
+                            name = None
+                            for tc in param_child.children:
+                                if tc.type == "identifier":
+                                    name = self._node_text(tc, source)
+                            if name:
+                                type_params.append(TypeParameter(name=name))
+
         return type_params
 
     def _extract_return_type(
@@ -1490,6 +1602,26 @@ class TreeSitterParser:
                         return self._node_text(child, source)
                     found_params = True
 
+        elif language == "csharp":
+            # Return type is before the method name in C#
+            # e.g. public async void Start() — return type is "void"
+            for child in node.children:
+                if child.type in {
+                    "predefined_type",  # void, int, string, float, etc.
+                    "nullable_type",    # int?, string?
+                    "array_type",       # int[]
+                    "generic_name",     # List<T>, Task<int>
+                }:
+                    return self._node_text(child, source)
+                # For custom types like IEnumerator, the return type is an identifier
+                # but we need to skip modifiers and the method name identifier
+                if child.type == "identifier":
+                    # Check if next sibling is also an identifier (method name) or parameter_list
+                    next_sib = child.next_sibling
+                    if next_sib and next_sib.type == "identifier":
+                        # This identifier is the return type, next is the method name
+                        return self._node_text(child, source)
+
         return None
 
     def _extract_implements(
@@ -1515,6 +1647,25 @@ class TreeSitterParser:
                             for type_child in iface_child.children:
                                 if type_child.type == "type_identifier":
                                     implements.append(self._node_text(type_child, source))
+
+        elif language == "csharp":
+            # In C#, base_list contains both base classes and interfaces
+            # Convention: interfaces start with 'I' followed by uppercase
+            for child in node.children:
+                if child.type == "base_list":
+                    for base_child in child.children:
+                        name = None
+                        if base_child.type == "identifier":
+                            name = self._node_text(base_child, source)
+                        elif base_child.type == "qualified_name":
+                            name = self._node_text(base_child, source)
+                        elif base_child.type == "generic_name":
+                            for gc in base_child.children:
+                                if gc.type == "identifier":
+                                    name = self._node_text(gc, source)
+                                    break
+                        if name and len(name) > 1 and name.startswith("I") and name[1].isupper():
+                            implements.append(name)
 
         return implements
 

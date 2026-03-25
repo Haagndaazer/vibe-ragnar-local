@@ -484,6 +484,71 @@ class CImportResolver(BaseImportResolver):
         )
 
 
+class CSharpImportResolver(BaseImportResolver):
+    """Import resolver for C# / Unity."""
+
+    # Well-known external namespaces
+    EXTERNAL_PREFIXES = {
+        "System", "Microsoft", "Mono",
+        "UnityEngine", "UnityEditor", "Unity",
+        "TMPro", "Cinemachine", "NUnit",
+        "Newtonsoft", "DG", "DOTween",
+        "Photon", "Mirror", "Zenject",
+        "PlayFab", "Firebase",
+    }
+
+    def resolve(self, import_name: str, context_file: str) -> ResolvedImport:
+        """Resolve a C# using directive.
+
+        Handles:
+        - using System;  -> external
+        - using UnityEngine;  -> external
+        - using MyGame.Gameplay;  -> internal namespace
+        - using static MyGame.Utils.Helper;  -> internal (static import)
+        - using Alias = Namespace;  -> internal or external
+        """
+        clean_name = import_name
+
+        # Strip 'static' prefix if present
+        if clean_name.startswith("static "):
+            clean_name = clean_name[7:]
+
+        # Strip alias prefix (e.g., "MyAlias = Some.Namespace")
+        if "=" in clean_name:
+            clean_name = clean_name.split("=", 1)[1].strip()
+
+        # Check if the root namespace is external
+        root_ns = clean_name.split(".")[0]
+        if root_ns in self.EXTERNAL_PREFIXES:
+            return ResolvedImport(
+                original=import_name,
+                resolved_path=None,
+                is_external=True,
+                is_relative=False,
+                alias=None,
+            )
+
+        # Try to resolve as internal namespace -> file path
+        ns_path = clean_name.replace(".", "/")
+
+        possible_paths = [
+            f"{ns_path}.cs",
+            f"Assets/Scripts/{ns_path}.cs",
+            f"Assets/{ns_path}.cs",
+            f"src/{ns_path}.cs",
+        ]
+
+        resolved_path = self._find_file(possible_paths)
+
+        return ResolvedImport(
+            original=import_name,
+            resolved_path=resolved_path,
+            is_external=resolved_path is None,
+            is_relative=False,
+            alias=None,
+        )
+
+
 class ImportResolver:
     """Main import resolver that delegates to language-specific resolvers."""
 
@@ -514,6 +579,7 @@ class ImportResolver:
             "java": JavaImportResolver(self.repo_root, self.known_files),
             "c": CImportResolver(self.repo_root, self.known_files),
             "cpp": CImportResolver(self.repo_root, self.known_files),
+            "csharp": CSharpImportResolver(self.repo_root, self.known_files),
         }
 
     def resolve(

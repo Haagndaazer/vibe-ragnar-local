@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import tree_sitter_c as tsc
+import tree_sitter_c_sharp as tscsharp
 import tree_sitter_cpp as tscpp
 import tree_sitter_go as tsgo
 import tree_sitter_java as tsjava
@@ -647,6 +648,142 @@ DART_TYPE_QUERY = """
 ) @type.def
 """
 
+# =============================================================================
+# C# (Unity) queries
+# =============================================================================
+
+CSHARP_FUNCTION_QUERY = """
+; Method declarations with body
+(method_declaration
+  name: (identifier) @function.name
+  parameters: (parameter_list) @function.params
+  body: (block) @function.body
+) @function.def
+
+; Expression-bodied methods (=> expr;)
+(method_declaration
+  name: (identifier) @function.name
+  parameters: (parameter_list) @function.params
+  (arrow_expression_clause) @function.body
+) @function.def
+
+; Abstract/interface methods (no body, ends with ;)
+(method_declaration
+  name: (identifier) @function.name
+  parameters: (parameter_list) @function.params
+) @function.def
+
+; Constructor declarations
+(constructor_declaration
+  name: (identifier) @function.name
+  parameters: (parameter_list) @function.params
+  body: (block) @function.body
+) @function.def
+
+; Property declarations (captures accessor logic)
+(property_declaration
+  name: (identifier) @function.name
+) @function.def
+
+; Local function statements
+(local_function_statement
+  name: (identifier) @function.name
+  parameters: (parameter_list) @function.params
+  body: (block) @function.body
+) @function.def
+"""
+
+CSHARP_CLASS_QUERY = """
+; Class declarations
+(class_declaration
+  name: (identifier) @class.name
+  body: (declaration_list) @class.body
+) @class.def
+
+; Struct declarations
+(struct_declaration
+  name: (identifier) @class.name
+  body: (declaration_list) @class.body
+) @class.def
+
+; Interface declarations
+(interface_declaration
+  name: (identifier) @class.name
+  body: (declaration_list) @class.body
+) @class.def
+
+; Enum declarations
+(enum_declaration
+  name: (identifier) @class.name
+) @class.def
+
+; Record declarations (C# 9+)
+(record_declaration
+  name: (identifier) @class.name
+) @class.def
+"""
+
+CSHARP_IMPORT_QUERY = """
+; Simple using: using UnityEngine;
+(using_directive
+  (identifier) @import.name
+) @import
+
+; Qualified using: using System.Collections.Generic;
+(using_directive
+  (qualified_name) @import.name
+) @import
+"""
+
+CSHARP_CALL_QUERY = """
+; Simple call: DoSomething()
+(invocation_expression
+  function: (identifier) @call.name
+)
+
+; Member access call: obj.Method()
+(invocation_expression
+  function: (member_access_expression
+    name: (identifier) @call.method
+  )
+)
+
+; Generic call: GetComponent<Rigidbody>()
+(invocation_expression
+  function: (generic_name
+    (identifier) @call.name
+  )
+)
+
+; Generic member access call: obj.GetComponent<Rigidbody>()
+(invocation_expression
+  function: (member_access_expression
+    name: (generic_name
+      (identifier) @call.method
+    )
+  )
+)
+
+; Object creation: new Foo()
+(object_creation_expression
+  type: (identifier) @call.name
+)
+
+; Generic object creation: new List<int>()
+(object_creation_expression
+  type: (generic_name
+    (identifier) @call.name
+  )
+)
+"""
+
+CSHARP_TYPE_QUERY = """
+; Delegate declarations
+(delegate_declaration
+  name: (identifier) @type.name
+) @type.def
+"""
+
 
 def _create_language_configs() -> dict[str, LanguageConfig]:
     """Create language configurations with Tree-sitter languages."""
@@ -735,6 +872,16 @@ def _create_language_configs() -> dict[str, LanguageConfig]:
             import_query=DART_IMPORT_QUERY,
             call_query=DART_CALL_QUERY,
             type_query=DART_TYPE_QUERY,
+        ),
+        "csharp": LanguageConfig(
+            name="csharp",
+            extensions=(".cs",),
+            language=Language(tscsharp.language()),
+            function_query=CSHARP_FUNCTION_QUERY,
+            class_query=CSHARP_CLASS_QUERY,
+            import_query=CSHARP_IMPORT_QUERY,
+            call_query=CSHARP_CALL_QUERY,
+            type_query=CSHARP_TYPE_QUERY,
         ),
     }
 
@@ -863,6 +1010,15 @@ IGNORED_DIRECTORIES = frozenset({
     ".pub",
     ".packages",
     ".fvm",
+
+    # === Unity / C# ===
+    "Library",
+    "Temp",
+    "Logs",
+    "obj",
+    "Packages",
+    "ProjectSettings",
+    "UserSettings",
 
     # === Java ===
     ".gradle",

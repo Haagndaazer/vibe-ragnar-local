@@ -1295,3 +1295,684 @@ void main() {
         point_call = next((c for c in main_func.call_details if c.name == "Point"), None)
         assert point_call is not None
         assert point_call.call_type == CallType.CONSTRUCTOR
+
+
+# =============================================================================
+# C# / Unity Tests
+# =============================================================================
+
+
+class TestCSharpParsing:
+    """Tests for C# / Unity parsing."""
+
+    def test_parse_method(self):
+        """Test parsing a basic C# method."""
+        code = '''
+public class Foo
+{
+    void DoSomething(int x) { }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        assert len(functions) == 1
+        assert functions[0].name == "DoSomething"
+        assert functions[0].class_name == "Foo"
+
+    def test_parse_class_with_methods(self):
+        """Test parsing a class with multiple methods."""
+        code = '''
+public class MyService
+{
+    public void Start() { }
+    private void Stop() { }
+    protected void Restart() { }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        classes = [e for e in entities if isinstance(e, Class)]
+        assert len(classes) == 1
+        assert classes[0].name == "MyService"
+        assert "Start" in classes[0].methods
+        assert "Stop" in classes[0].methods
+        assert "Restart" in classes[0].methods
+
+    def test_parse_struct(self):
+        """Test parsing a C# struct."""
+        code = '''
+public struct Vector2
+{
+    public float x;
+    public float y;
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        classes = [e for e in entities if isinstance(e, Class)]
+        assert len(classes) == 1
+        assert classes[0].name == "Vector2"
+        assert classes[0].is_interface is False
+
+    def test_parse_interface(self):
+        """Test parsing a C# interface."""
+        code = '''
+public interface IDamageable
+{
+    void TakeDamage(int amount);
+    int GetHealth();
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        classes = [e for e in entities if isinstance(e, Class)]
+        assert len(classes) == 1
+        assert classes[0].name == "IDamageable"
+        assert classes[0].is_interface is True
+
+    def test_parse_enum(self):
+        """Test parsing a C# enum."""
+        code = '''
+public enum DamageType
+{
+    Physical,
+    Magical,
+    True
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        classes = [e for e in entities if isinstance(e, Class)]
+        assert len(classes) == 1
+        assert classes[0].name == "DamageType"
+
+    def test_parse_record(self):
+        """Test parsing a C# record type."""
+        code = '''
+public record PlayerData(string Name, int Level);
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        classes = [e for e in entities if isinstance(e, Class)]
+        assert len(classes) == 1
+        assert classes[0].name == "PlayerData"
+
+    def test_parse_constructor(self):
+        """Test parsing a C# constructor."""
+        code = '''
+public class Foo
+{
+    public Foo(int x) { }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        assert len(functions) == 1
+        assert functions[0].name == "Foo"
+        assert functions[0].is_constructor is True
+
+    def test_parse_property(self):
+        """Test parsing a C# property."""
+        code = '''
+public class Foo
+{
+    public int Health { get; set; }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        assert len(functions) == 1
+        assert functions[0].name == "Health"
+
+    def test_parse_access_modifiers(self):
+        """Test access modifier detection."""
+        code = '''
+public class Foo
+{
+    public void PublicMethod() { }
+    private void PrivateMethod() { }
+    protected void ProtectedMethod() { }
+    internal void InternalMethod() { }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        from vibe_ragnar.parser.entities import AccessModifier
+        functions = {e.name: e for e in entities if isinstance(e, Function)}
+        assert functions["PublicMethod"].access_modifier == AccessModifier.PUBLIC
+        assert functions["PrivateMethod"].access_modifier == AccessModifier.PRIVATE
+        assert functions["ProtectedMethod"].access_modifier == AccessModifier.PROTECTED
+        assert functions["InternalMethod"].access_modifier == AccessModifier.INTERNAL
+
+    def test_parse_static_method(self):
+        """Test static method detection."""
+        code = '''
+public class Foo
+{
+    public static void Create() { }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        assert len(functions) == 1
+        assert functions[0].is_static is True
+
+    def test_parse_abstract_method(self):
+        """Test abstract method detection."""
+        code = '''
+public abstract class Base
+{
+    public abstract void DoWork();
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        assert len(functions) == 1
+        assert functions[0].is_abstract is True
+
+        classes = [e for e in entities if isinstance(e, Class)]
+        assert classes[0].is_abstract is True
+
+    def test_parse_async_method(self):
+        """Test async method detection."""
+        code = '''
+public class Foo
+{
+    public async void Start()
+    {
+        await Task.Delay(100);
+    }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        assert len(functions) == 1
+        assert functions[0].is_async is True
+
+    def test_parse_generics(self):
+        """Test generic type parameter extraction."""
+        code = '''
+public class Repository<T>
+{
+    public T Find<K>(K key) { return default; }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        classes = [e for e in entities if isinstance(e, Class)]
+        assert len(classes) == 1
+        assert len(classes[0].type_parameters) == 1
+        assert classes[0].type_parameters[0].name == "T"
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        find_fn = next(fn for fn in functions if fn.name == "Find")
+        assert len(find_fn.type_parameters) == 1
+        assert find_fn.type_parameters[0].name == "K"
+
+    def test_parse_inheritance(self):
+        """Test base class extraction."""
+        code = '''
+public class PlayerController : MonoBehaviour
+{
+    void Start() { }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        classes = [e for e in entities if isinstance(e, Class)]
+        assert len(classes) == 1
+        assert "MonoBehaviour" in classes[0].bases
+
+    def test_parse_implements(self):
+        """Test interface implementation detection."""
+        code = '''
+public class Player : MonoBehaviour, IDamageable, ISerializable
+{
+    void Start() { }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        classes = [e for e in entities if isinstance(e, Class)]
+        assert len(classes) == 1
+        assert "IDamageable" in classes[0].implements
+        assert "ISerializable" in classes[0].implements
+        assert "MonoBehaviour" in classes[0].bases
+        assert "MonoBehaviour" not in classes[0].implements
+
+    def test_parse_using_directives(self):
+        """Test import extraction from using directives."""
+        code = '''
+using UnityEngine;
+using System.Collections.Generic;
+
+public class Foo { }
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        files = [e for e in entities if isinstance(e, File)]
+        assert len(files) == 1
+        assert "UnityEngine" in files[0].imports
+        assert "System.Collections.Generic" in files[0].imports
+
+    def test_parse_attributes(self):
+        """Test attribute/decorator extraction."""
+        code = '''
+public class Foo
+{
+    [SerializeField] private float speed = 5f;
+
+    [RequireComponent(typeof(Rigidbody))]
+    void Awake() { }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        awake = next(fn for fn in functions if fn.name == "Awake")
+        assert "RequireComponent" in awake.decorators
+
+    def test_parse_return_type(self):
+        """Test return type extraction."""
+        code = '''
+public class Foo
+{
+    void NoReturn() { }
+    int GetHealth() { return 0; }
+    IEnumerator LoadData() { yield return null; }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = {e.name: e for e in entities if isinstance(e, Function)}
+        assert functions["NoReturn"].return_type == "void"
+        assert functions["GetHealth"].return_type == "int"
+        assert functions["LoadData"].return_type == "IEnumerator"
+
+    def test_parse_expression_bodied_member(self):
+        """Test expression-bodied method parsing."""
+        code = '''
+public class Foo
+{
+    public int GetValue() => 42;
+    public static Foo Create(string name) => new Foo();
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        names = {fn.name for fn in functions}
+        assert "GetValue" in names
+        assert "Create" in names
+
+    def test_parse_nested_class(self):
+        """Test nested class detection."""
+        code = '''
+public class Outer
+{
+    public class Inner
+    {
+        void InnerMethod() { }
+    }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        assert len(functions) == 1
+        assert functions[0].name == "InnerMethod"
+        assert functions[0].class_name == "Outer.Inner"
+
+    def test_supports_cs_file(self):
+        """Test that .cs files are recognized."""
+        parser = TreeSitterParser("test-repo")
+        assert parser.supports_file(Path("test.cs"))
+        assert not parser.supports_file(Path("test.csx"))
+
+
+class TestCSharpUnityParsing:
+    """Tests for Unity-specific C# patterns."""
+
+    def test_parse_monobehaviour_class(self):
+        """Test parsing a MonoBehaviour with lifecycle methods."""
+        code = '''
+using UnityEngine;
+
+public class PlayerController : MonoBehaviour
+{
+    void Awake() { }
+    void Start() { }
+    void Update() { }
+    void FixedUpdate() { }
+    void LateUpdate() { }
+    void OnDestroy() { }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        classes = [e for e in entities if isinstance(e, Class)]
+        assert len(classes) == 1
+        assert "MonoBehaviour" in classes[0].bases
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        names = {fn.name for fn in functions}
+        assert "Awake" in names
+        assert "Start" in names
+        assert "Update" in names
+        assert "FixedUpdate" in names
+        assert "LateUpdate" in names
+        assert "OnDestroy" in names
+
+    def test_parse_getcomponent_call(self):
+        """Test GetComponent<T>() call extraction."""
+        code = '''
+public class Foo
+{
+    void Start()
+    {
+        var rb = GetComponent<Rigidbody>();
+        var col = gameObject.GetComponent<BoxCollider>();
+    }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        start = next(fn for fn in functions if fn.name == "Start")
+        assert "GetComponent" in start.calls
+
+        # Check that we have both calls with correct receivers
+        gc_calls = [c for c in start.call_details if c.name == "GetComponent"]
+        assert len(gc_calls) == 2
+        receivers = {c.receiver for c in gc_calls}
+        assert None in receivers  # Direct call
+        assert "gameObject" in receivers  # Member access call
+
+    def test_parse_startcoroutine_call(self):
+        """Test StartCoroutine() call extraction."""
+        code = '''
+using System.Collections;
+
+public class Foo
+{
+    void Start()
+    {
+        StartCoroutine(LoadData());
+    }
+    IEnumerator LoadData() { yield return null; }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        start = next(fn for fn in functions if fn.name == "Start")
+        assert "StartCoroutine" in start.calls
+        assert "LoadData" in start.calls
+
+    def test_parse_serialize_field(self):
+        """Test [SerializeField] attribute extraction on fields."""
+        code = '''
+using UnityEngine;
+
+public class Foo : MonoBehaviour
+{
+    [SerializeField] private float speed = 5f;
+
+    [Header("Movement")]
+    [SerializeField]
+    private Vector3 direction;
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        # SerializeField is on fields, not methods — just verify parsing doesn't crash
+        classes = [e for e in entities if isinstance(e, Class)]
+        assert len(classes) == 1
+        assert classes[0].name == "Foo"
+
+    def test_parse_coroutine_method(self):
+        """Test coroutine return type detection."""
+        code = '''
+using System.Collections;
+using UnityEngine;
+
+public class Foo
+{
+    private IEnumerator LoadData()
+    {
+        yield return new WaitForSeconds(1f);
+    }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        assert len(functions) == 1
+        assert functions[0].return_type == "IEnumerator"
+        assert "WaitForSeconds" in functions[0].calls
+
+
+class TestCSharpCallExtraction:
+    """Tests for C# call extraction."""
+
+    def test_simple_call(self):
+        """Test simple function call extraction."""
+        code = '''
+public class Foo
+{
+    void Bar()
+    {
+        DoSomething();
+    }
+    void DoSomething() { }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        bar = next(fn for fn in functions if fn.name == "Bar")
+        assert "DoSomething" in bar.calls
+
+    def test_member_access_call(self):
+        """Test member access call extraction (obj.Method())."""
+        code = '''
+public class Foo
+{
+    void Bar()
+    {
+        Debug.Log("test");
+        transform.Translate(Vector3.right);
+    }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        bar = next(fn for fn in functions if fn.name == "Bar")
+        assert "Log" in bar.calls
+        assert "Translate" in bar.calls
+
+        from vibe_ragnar.parser.entities import CallType
+        log_call = next(c for c in bar.call_details if c.name == "Log")
+        assert log_call.receiver == "Debug"
+
+    def test_object_creation(self):
+        """Test new object creation call extraction."""
+        code = '''
+public class Foo
+{
+    void Bar()
+    {
+        var obj = new SomeClass();
+        var list = new List<int>();
+    }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        bar = next(fn for fn in functions if fn.name == "Bar")
+        assert "SomeClass" in bar.calls
+        assert "List" in bar.calls
+
+    def test_generic_method_call(self):
+        """Test generic method call extraction (GetComponent<T>)."""
+        code = '''
+public class Foo
+{
+    void Bar()
+    {
+        GetComponent<Rigidbody>();
+    }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        bar = next(fn for fn in functions if fn.name == "Bar")
+        assert "GetComponent" in bar.calls
+
+    def test_chained_calls(self):
+        """Test chained method call extraction."""
+        code = '''
+public class Foo
+{
+    void Bar()
+    {
+        builder.SetWidth(10).SetHeight(20).Build();
+    }
+}
+'''
+        with NamedTemporaryFile(mode="w", suffix=".cs", delete=False) as f:
+            f.write(code)
+            f.flush()
+            parser = TreeSitterParser("test-repo")
+            entities = parser.parse_file(Path(f.name))
+
+        functions = [e for e in entities if isinstance(e, Function)]
+        bar = next(fn for fn in functions if fn.name == "Bar")
+        assert "SetWidth" in bar.calls
+        assert "SetHeight" in bar.calls
+        assert "Build" in bar.calls
