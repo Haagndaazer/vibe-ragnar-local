@@ -6,6 +6,8 @@ import time
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
+from sentence_transformers import SentenceTransformer
+
 from ..parser.entities import Class, EmbeddableEntity, Function, TypeDefinition
 
 if TYPE_CHECKING:
@@ -45,11 +47,7 @@ class SentenceTransformersBackend(EmbeddingBackend):
             dimensions: Optional dimension truncation
         """
         t0 = time.monotonic()
-        logger.info(f"Importing sentence-transformers...")
-        from sentence_transformers import SentenceTransformer
-
-        t1 = time.monotonic()
-        logger.info(f"Import complete ({t1 - t0:.1f}s). Loading model: {model_name}")
+        logger.info(f"Loading model: {model_name}")
         self._model = SentenceTransformer(model_name, trust_remote_code=True)
 
         t2 = time.monotonic()
