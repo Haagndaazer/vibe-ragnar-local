@@ -49,11 +49,10 @@ class SentenceTransformersBackend(EmbeddingBackend):
         t0 = time.monotonic()
         logger.info(f"Loading model: {model_name}")
         self._model = SentenceTransformer(model_name, trust_remote_code=True)
-
-        t2 = time.monotonic()
+        elapsed = time.monotonic() - t0
         self._dimensions = dimensions
         self._lock = threading.Lock()
-        logger.info(f"Model loaded successfully (import: {t1 - t0:.1f}s, model: {t2 - t1:.1f}s, total: {t2 - t0:.1f}s)")
+        logger.info(f"Model loaded successfully ({elapsed:.1f}s)")
 
     def encode(self, texts: list[str], is_query: bool = False) -> list[list[float]]:
         """Encode texts into embeddings.
