@@ -61,20 +61,6 @@ class Settings(BaseSettings):
         description="Ollama model name for embeddings",
     )
 
-    # Curator settings
-    curator_enabled: bool = Field(
-        default=True,
-        description="Enable automatic edge curation via local LLM",
-    )
-    curator_model: str = Field(
-        default="qwen3:8b",
-        description="Ollama model for cognition graph curation",
-    )
-    curator_max_candidates: int = Field(
-        default=8,
-        description="Maximum number of candidate nodes to evaluate for edge creation",
-    )
-
     # ChromaDB settings
     chromadb_collection: str = Field(
         default="code_embeddings",
@@ -139,15 +125,6 @@ class Settings(BaseSettings):
         """Get the graph pickle storage path."""
         return self.repo_path / self.persist_dir / "graph.pickle"
 
-    @property
-    def cognition_dir(self) -> Path:
-        """Get the cognition graph storage directory (Git-committed)."""
-        return self.repo_path / ".cognition"
-
-    @property
-    def cognition_chromadb_path(self) -> Path:
-        """Get the cognition ChromaDB storage path (gitignored, regenerable)."""
-        return self.repo_path / self.persist_dir / "cognition_chromadb"
 
 
 def setup_logging(level: str) -> None:

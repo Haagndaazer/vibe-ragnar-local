@@ -11,8 +11,8 @@ def require_embeddings(ctx: Context) -> dict[str, Any] | None:
     event = lc.get("embedding_ready")
     if event is None or not event.is_set():
         return {
-            "error": "Embedding model is still loading. Graph and cognition history "
-                     "tools are available now. Try again in a few seconds.",
+            "error": "Embedding model is still loading. Graph tools are available now. "
+                     "Try again in a few seconds.",
             "status": "loading_embeddings",
         }
     error = lc.get("embedding_error")

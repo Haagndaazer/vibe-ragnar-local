@@ -25,9 +25,6 @@ def register_search_tools(mcp) -> None:
     ) -> dict[str, Any]:
         """Search CODE entities (functions, classes, types) by natural language.
 
-        This searches the code index only. It does NOT search project history
-        (decisions, failures, patterns) — use cognition_search for that.
-
         Args:
             query: What you're looking for, e.g.:
                    - "how to parse JSON config"

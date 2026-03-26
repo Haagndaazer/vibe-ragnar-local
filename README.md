@@ -16,7 +16,6 @@ A fully local [MCP](https://modelcontextprotocol.io/) server for [Claude Code](h
 - [Usage with Claude Code](#usage-with-claude-code)
 - [MCP Tools](#mcp-tools)
 - [Storage](#storage)
-- [Cognition History Graph](#cognition-history-graph)
 - [Configuration](#configuration)
 - [Troubleshooting](#troubleshooting)
 - [Agents (Optional)](#agents-optional)
@@ -73,7 +72,6 @@ irm https://astral.sh/uv/install.ps1 | iex
 
 - **Disk**: ~2-4GB for Python dependencies (includes PyTorch), ~250MB for the embedding model (cached at `~/.cache/huggingface/`)
 - **RAM**: ~1-2GB for the embedding model at runtime
-- **Disk (if using curator)**: additional ~5.5GB for the Ollama model
 - **GPU**: Not required. CPU is the default; GPU is used automatically when available
 
 #### Platform Notes
@@ -105,11 +103,6 @@ Shell examples in this README use bash syntax (macOS, Linux, Git Bash on Windows
 
    > `trust_remote_code=True` is required by the nomic model's custom architecture. The code comes from the [nomic-ai HuggingFace repository](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5). Review it there if you want to audit before first run.
 
-4. **(Optional) Curator setup** — The cognition curator is **enabled by default** and uses [Ollama](https://ollama.com) to automatically link knowledge nodes. If you have Ollama installed, the curator model (`qwen3:8b`, ~5.5GB) is pulled automatically on first server start. If Ollama is not installed, the curator logs a warning and skips — nodes are stored but not connected. To explicitly disable:
-   ```bash
-   # Add --env CURATOR_ENABLED=false when registering the MCP server (see next section)
-   ```
-
 That's it! No API keys or external service configuration needed.
 
 ## Usage with Claude Code
@@ -140,13 +133,6 @@ Replace `/path/to/vibe-ragnar` with the absolute path to your Vibe RAGnar clone.
 - `tool_get_call_chain` - Get recursive call tree
 - `tool_get_class_hierarchy` - Get inheritance tree
 
-### Cognition Tools
-
-- `cognition_record` - Record a knowledge node (decision, fail, discovery, pattern, episode, etc.)
-- `cognition_search` - Search PROJECT HISTORY (decisions, failures, patterns) by natural language
-- `cognition_get_chain` - Traverse causal reasoning chains between nodes
-- `cognition_get_history` - Browse cognition nodes by context area, type, or recency
-
 ### Service Tools
 
 - `get_index_status` - Get indexing statistics
@@ -158,147 +144,18 @@ Vibe RAGnar stores data in two locations within your project:
 
 ```
 your-project/
-├── .cognition/
-│   └── journal.jsonl       # Cognition graph (Git-committed, team-shared)
 ├── .embeddings/
 │   ├── chromadb/            # Code vector embeddings
-│   ├── cognition_chromadb/  # Cognition vector embeddings
 │   └── graph.pickle         # Code dependency graph
 └── ... your code
 ```
 
-- **`.cognition/`** should be committed to Git — it's the shared project knowledge base
 - **`.embeddings/`** should be in `.gitignore` — it's a regenerable cache (rebuilt automatically on next server startup if deleted)
 
 Add `.embeddings/` to your project's `.gitignore`:
 ```bash
 echo '.embeddings/' >> .gitignore
 ```
-
-## Cognition History Graph
-
-The cognition graph captures project knowledge — decisions made, approaches that failed, non-obvious discoveries, constraints, incidents, and patterns — so future sessions have context on *why* the code is the way it is.
-
-### How It Works
-
-1. **Record nodes** during conversations via `cognition_record` (or automatically via hooks)
-2. **Curator LLM** (Qwen3 8B via Ollama) automatically creates edges between related nodes in the background
-3. **Query** with `cognition_search` (semantic) or `cognition_get_history` (by context/type)
-4. **Two search spaces**: `semantic_search` finds code, `cognition_search` finds project history — they're completely separate
-
-### Node Types
-
-| Type | Purpose |
-|------|---------|
-| `decision` | A choice between alternatives (and why) |
-| `fail` | An approach that didn't work |
-| `discovery` | A non-obvious finding |
-| `assumption` | A premise being relied on |
-| `constraint` | A hard limitation or scoping exclusion |
-| `incident` | A production problem |
-| `pattern` | A reusable lesson learned |
-| `episode` | Full narrative of completed work (Linear task, feature, debugging session) |
-
-### Edge Types (created automatically by curator)
-
-| Edge | Meaning |
-|------|---------|
-| `led_to` | Causal chain — X led to Y |
-| `supersedes` | X replaces Y |
-| `contradicts` | X conflicts with Y |
-| `relates_to` | Same topic, no causal link |
-| `resolved_by` | Problem X was fixed by Y |
-| `part_of` | Entity belongs to an episode |
-| `duplicate_of` | X is semantically identical to Y |
-
-### Setup: Curator (Optional but Recommended)
-
-The curator is **enabled by default** (`CURATOR_ENABLED=true`). It uses a local Ollama LLM to automatically create meaningful edges between cognition nodes. Without it, nodes are stored but not connected.
-
-1. Install [Ollama](https://ollama.com)
-2. The curator model (`qwen3:8b`) is pulled automatically on first server start
-3. Requires ~5.5GB VRAM (or runs on CPU, slower)
-
-If Ollama is not installed or not running, the curator logs a warning and does not function — the server continues normally, but edges are not created.
-
-To disable the curator explicitly, add `--env CURATOR_ENABLED=false` when registering the MCP server.
-
-### Setup: Auto-Capture Hooks (Optional)
-
-#### Prime — Inject project context at session start
-
-The `vibe-ragnar-prime` command outputs recent constraints, patterns, decisions, and incidents. Configure it as a Claude Code hook so every session starts with project context:
-
-Add to your project's `.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "SessionStart": [{
-      "matcher": "",
-      "hooks": [{
-        "type": "command",
-        "command": "uv run --directory /path/to/vibe-ragnar vibe-ragnar-prime"
-      }]
-    }],
-    "PreCompact": [{
-      "matcher": "",
-      "hooks": [{
-        "type": "command",
-        "command": "uv run --directory /path/to/vibe-ragnar vibe-ragnar-prime"
-      }]
-    }]
-  }
-}
-```
-
-> When run as a Claude Code hook from your project directory, `REPO_PATH` is not needed — the hook defaults to the current working directory.
-
-#### Post-Commit — Auto-create episodes from git commits
-
-The post-commit hook creates episode nodes automatically when commits happen during Claude Code sessions:
-
-Add to your project's `.claude/settings.json` (merge with existing hooks):
-
-```json
-{
-  "hooks": {
-    "PostToolUse": [{
-      "matcher": "Bash",
-      "hooks": [{
-        "type": "command",
-        "command": "python3 /path/to/vibe-ragnar/agents/hooks/post-commit.py"
-      }]
-    }]
-  }
-}
-```
-
-> This script uses only Python stdlib, so it does not require `uv run`. Use `python3` on macOS/Linux. On Windows, use `python` with forward-slash paths (e.g., `python C:/Users/me/vibe-ragnar/agents/hooks/post-commit.py`).
-
-#### Backfill — Find commits missing episodes
-
-The `vibe-ragnar-backfill` command finds recent git commits without corresponding episode nodes and outputs instructions for creating them:
-
-**bash:**
-```bash
-cd /path/to/your-project
-REPO_PATH="$PWD" uv run --directory /path/to/vibe-ragnar vibe-ragnar-backfill
-```
-
-**PowerShell:**
-```powershell
-cd C:\path\to\your-project
-$env:REPO_PATH = "$PWD"; uv run --directory C:/path/to/vibe-ragnar vibe-ragnar-backfill
-```
-
-Also available as the `/vibe-backfill` skill in Claude Code if you copy `agents/vibe-backfill` to your project's `.claude/skills/` directory.
-
-### Setup: Skill File (Optional)
-
-Copy the `agents/vibe-cognition` directory from the Vibe RAGnar repo to your project's `.claude/skills/` directory. Create `.claude/skills/` first if it doesn't exist.
-
-This teaches the LLM to use concise entity summaries (<250 chars), create episodes for completed work, and always include references for curator linking.
 
 ## Configuration
 
@@ -315,9 +172,6 @@ All configuration is optional. Vibe RAGnar works out of the box with sensible de
 | `EMBEDDING_DIMENSIONS` | No | `768` | Embedding vector dimensions |
 | `OLLAMA_BASE_URL` | No | `http://localhost:11434` | Ollama server URL (if using Ollama) |
 | `OLLAMA_MODEL` | No | `nomic-embed-text` | Ollama embedding model |
-| `CURATOR_ENABLED` | No | `true` | Enable automatic cognition edge curation via local LLM |
-| `CURATOR_MODEL` | No | `qwen3:8b` | Ollama model for cognition graph curation |
-| `CURATOR_MAX_CANDIDATES` | No | `8` | Max candidate nodes to evaluate per curation |
 | `CHROMADB_COLLECTION` | No | `code_embeddings` | ChromaDB collection name |
 | `DEBOUNCE_SECONDS` | No | `5.0` | File watcher debounce delay in seconds |
 | `LOG_LEVEL` | No | `INFO` | Logging level |
@@ -328,7 +182,6 @@ Instead of passing `--env` flags, you can create a `.env` file in the vibe-ragna
 
 ```env
 REPO_PATH=C:/Users/me/my-project
-CURATOR_ENABLED=false
 ```
 
 > **Windows users**: Always use forward slashes in `.env` file paths (e.g., `C:/Users/me/project`). Backslashes are interpreted as escape sequences by python-dotenv (`\t` = tab, `\n` = newline, `\v` = vertical tab), which will silently corrupt your paths.
@@ -352,8 +205,6 @@ If you prefer to use Ollama for embeddings:
 **"Embedding model is still loading"** — Search tools need the embedding model, which loads in the background on startup (2-30 seconds). Graph tools work immediately. Wait and try again.
 
 **ChromaDB lock / database errors** — Only one Vibe RAGnar instance can index a project at a time. Check for duplicate MCP server instances or other processes using `.embeddings/chromadb/`.
-
-**Curator not creating edges** — Verify Ollama is running (`ollama list`). Without Ollama, the curator logs a warning and does not create edges. Nodes are still stored.
 
 **Model download failures** — The embedding model (~250MB) is downloaded from Hugging Face on first run. Check your internet connection and proxy settings. Corporate firewalls may block Hugging Face downloads.
 
@@ -408,14 +259,7 @@ To remove Vibe RAGnar:
    rm -rf .embeddings/
    ```
 
-3. Optionally delete the cognition history (warning: this deletes shared project knowledge):
-   ```bash
-   rm -rf .cognition/
-   ```
-
-4. Remove any hooks you added to `.claude/settings.json` (SessionStart, PreCompact, PostToolUse entries for vibe-ragnar)
-
-5. Remove the cached embedding model (shared across all projects):
+3. Remove the cached embedding model (shared across all projects):
    ```bash
    rm -rf ~/.cache/huggingface/hub/models--nomic-ai--nomic-embed-text-v1.5/
    ```
